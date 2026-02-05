@@ -1,0 +1,28 @@
+services:
+  graphdb:
+    image: ontotext/graphdb:11.2.0
+    container_name: graphdb
+    ports:
+      - "7200:7200"
+    volumes:
+      - ./graphdb:/opt/graphdb/home
+    environment:
+      - GDB_JAVA_OPTS=-Xmx2g -Xms2g
+    restart: unless-stopped
+    healthcheck: # so graphdb-init can start when required
+      test: ["CMD", "curl", "-f", "http://localhost:7200/rest/repositories"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    
+  graphdb-init:
+    build: ./init/
+    container_name: graphdb-init
+    depends_on:
+      graphdb:
+        condition: service_healthy
+    volumes:
+      - ./_secret:/data  # copy .ttl files
+    environment:
+      GRAPHDB_URL: "http://graphdb:7200" # container_name:port
+      REPO_ID: ontobot

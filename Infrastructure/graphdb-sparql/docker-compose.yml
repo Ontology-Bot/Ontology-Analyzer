@@ -7,9 +7,33 @@ services:
     ports:
       - "${GRAPHDB_PORT}:7200"
     volumes:
-      - ./graphdb:/opt/graphdb/home  # persist GraphDB data between restarts
-      - ./_secret:/data  # .ttl ontology files
+      - ./graphdb:/opt/graphdb/home # persist GraphDB data between restarts
     environment:
       - GDB_JAVA_OPTS=-Xmx2g -Xms2g
-      - REPO_ID=ontobot
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -sf http://localhost:7200/rest/repositories || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
     restart: unless-stopped
+
+  graphdb-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: graphdb-init
+    depends_on:
+      graphdb:
+        condition: service_healthy
+    volumes:
+      - ./_secret:/data # .ttl ontology files
+      - ./init:/init
+    entrypoint: ["/bin/bash", "/init/import-ttl.sh"]
+    environment:
+      - GRAPHDB_URL=http://graphdb:7200
+      - REPO_ID=ontobot

@@ -20,5 +20,6 @@ curl -s -G "http://localhost:7200/repositories/ontobot" --data-urlencode 'query=
 ```
 
 # More:
-- Change `GRAPHDB_URL` or `REPO_ID` in `docker-compose.yml`
-- Creates additional container `graphdb-init` to bootstrap Repository (load Ontology files)
+- Change `GRAPHDB_URL` or `REPO_ID` in `docker-compose.yml` (environment of `graphdb-init`)
+- The `graphdb-init` container runs once to create the repository and load TTL files, then exits
+- Place ontology `.ttl` files in `./_secret` — they are mounted into the init container

@@ -6,7 +6,7 @@
 
 ### RUNNING THE INFRASTRUCTURE
 - You can run the entire infrastructure by running `docker compose up` from the root directory. This will start all the services defined in the docker-compose files across the different folders.
-- If you want to run only specific services, navigate to the respective folder and run `docker compose up --env-file ../.env` there. For example, to run only OpenWebUI, go to the `openwebui/` folder and run `docker compose up --env-file ../.env` from there.
+> If you want to run only specific services, navigate to the respective folder and run `docker compose up --env-file ../.env` there. For example, to run only OpenWebUI, go to the `openwebui/` folder and run `docker compose up --env-file ../.env` from there.
 - Make sure to follow the specific instructions in each readme for any additional setup steps required for that service, such as configuring API keys or populating ontology files.
 - After starting the services, you can access them as seen in docker compose files and readmes. Or better yet, We configured a reverse proxy in `traefik/` folder, so you can access all services through a hostname like `http://service-name.localhost`. 
 ```bash

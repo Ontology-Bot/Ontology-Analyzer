@@ -1,0 +1,35 @@
+http:
+  routers:
+    graphdb:
+      rule: "Host(`graphdb.localhost`)"
+      service: graphdb
+      entryPoints:
+        - web
+
+    neo4j:
+      rule: "Host(`neo4j.localhost`)"
+      service: neo4j
+      entryPoints:
+        - web
+
+    openwebui:
+      rule: "Host(`webui.localhost`)"
+      service: openwebui
+      entryPoints:
+        - web
+
+  services:
+    graphdb:
+      loadBalancer:
+        servers:
+          - url: "http://graphdb:7200"
+
+    neo4j:
+      loadBalancer:
+        servers:
+          - url: "http://neo4j:7474"
+
+    openwebui:
+      loadBalancer:
+        servers:
+          - url: "http://open-webui:8080"

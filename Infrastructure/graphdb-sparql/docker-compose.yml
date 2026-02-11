@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: graphdb
     ports:
-      - "7200:7200"
+      - "${GRAPHDB_PORT}:7200"
     volumes:
       - ./graphdb:/opt/graphdb/home  # persist GraphDB data between restarts
       - ./_secret:/data  # .ttl ontology files

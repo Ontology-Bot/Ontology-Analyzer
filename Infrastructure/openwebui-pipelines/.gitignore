@@ -1,0 +1,11 @@
+# Python runtime artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Pipeline runtime configurations (per-pipeline settings)
+pipelines/*/valves.json
+
+# Keep Python pipeline code tracked (not ignored)
+!pipelines/*.py

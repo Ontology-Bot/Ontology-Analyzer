@@ -8,7 +8,11 @@ It should auto-populate ontology from `./_secret`
 3. Put ontology files into `./_secret`
 
 # Launch:
-1. Run `docker compose up`
+1. Run `docker compose up` from this directory using the env from the root `.env` file
+
+> ```bash
+> docker compose --env-file ../.env up -d
+> ```
 2. Access web ui at `http://localhost:7200/` 
 3. Run sparql queries to `http://localhost:7200/repositories/ontobot`
 ```bash

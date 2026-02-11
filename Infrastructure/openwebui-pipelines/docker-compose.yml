@@ -1,0 +1,9 @@
+services:
+  pipelines:
+    image: ghcr.io/open-webui/pipelines:main
+    container_name: pipelines
+    volumes:
+      - ./pipelines:/app/pipelines
+    environment:
+      - PIPELINES_API_KEY=free_pass # any string, will be used to add pipelines to webui
+    restart: unless-stopped

@@ -1,18 +1,9 @@
 services:
-  pipelines:
-    image: ghcr.io/open-webui/pipelines:main
-    container_name: pipelines
-    volumes:
-      - ./pipelines:/app/pipelines   
-    environment:
-      - PIPELINES_API_KEY="0p3n-w3bu!" # any string, will be used to add pipelines to webui    
-    restart: unless-stopped
-    
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui
     ports:
-      - "3000:8080"
+      - "${OPENWEBUI_PORT}:8080"
     environment:
       WEBUI_AUTH: "False"  # allows you to skip auth stuff, only for dev, once loaded can not be changed
       OLLAMA_BASE_URL: "https://genai-01.uni-hildesheim.de/ollama" # our uni ollama, can use other

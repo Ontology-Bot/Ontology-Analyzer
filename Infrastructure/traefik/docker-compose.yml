@@ -1,0 +1,13 @@
+services:
+  # Traefik reverse proxy for friendly URLs
+  # Uses file-based config instead of Docker provider for WSL compatibility
+  traefik:
+    image: traefik:v3.1
+    container_name: traefik
+    ports:
+      - "80:80"
+      - "${TRAEFIK_DASHBOARD_PORT}:8080"
+    volumes:
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./dynamic.yml:/etc/traefik/dynamic.yml:ro
+    restart: unless-stopped

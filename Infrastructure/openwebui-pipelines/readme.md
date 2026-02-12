@@ -35,11 +35,11 @@ Pipeline project has the following structure:
 openwebui-pipelines/
 └── app/                              <- uv project root
     ├── pipelines/ 
-    │   └── your_pipeline.py  
+    │   └── <your_pipeline>.py  
     ├── prototypes/
     │    ├── utils/
-    │    └── your_pipeline_lib/
-	│	    └── your_pipeline_code.py
+    │    └── <your_pipeline_lib>/
+	│	    └── <your_pipeline_code>.py
 	└── data/
 ```
 
@@ -55,10 +55,23 @@ openwebui-pipelines/
   - *ALL pipelines share the same environment inside container, and in uv project too*. 
 - `app/data/` - intended to store cached data (e.g. embedding model files) to use, create a folder there. NOT mapped between host and container to avoid permissions errors, also to force data recreation inside container as a test
 
+### OpenWebUI test
+
+Once youre ready to run OpenWebUI test of your pipeline, follow these guidelines:
+1. Ensure that you start containers with main `docker-compose` (called infrastructure) - OpenWebUI and must be in the same `docker-compose` group together. *Tip. once docker-compose group is set - you do not need all containers running. Keep open-webui, pipelines, graphdb running* 
+2. Ensure that the service is connected to OpenWebUI. You should see pipeline valves at **Admin Panel > Settings > Pipelines**. Setup valve values there.
+3. If your pipeline is missing (but service is connected):
+   - See if your `<your_pipeline.py>` file got moved to `app/pipelines/failed`. If so, then it failed to import dependencies. Ensure that dependencies are specified correctly. *Tip. wrap imports with `import traceback try except traceback.print_exc()` - that will print detailed problem*. Do not forget to move your pipeline back when fixed.
+   - Open `pipelines` container log: you can see there error traceback
+   - To restart your pipeline, restart `pipelines` docker container.
+4. If everything is good, your models should appear under models (but not if you created `filter` pipeline). Select one, try to chat with it
+
 ### Info
 - `uv` can be used ONLY LOCALLY - inside container there is no uv - do not rely on it.
 - if you prefer full isolation of your pipeline code, copy `openwebui-pipelines/` and use it as a template (you need to setup main `docker-compose.yml` yourself). 
 - For individual prototypes documentation, look into `readme.md` inside `/app` dir 
+- When you test with OpenWebUI, you can restart 
+- When you test with OpenWebUI, your pipeline might fail. OpenWebUI moves failed pipelines to `pipelines/failed`! 
 
 ### Pipeline Template
 

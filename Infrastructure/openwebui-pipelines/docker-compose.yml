@@ -3,7 +3,11 @@ services:
     image: ghcr.io/open-webui/pipelines:main
     container_name: pipelines
     volumes:
-      - ./pipelines:/app/pipelines
+      - ./app/pipelines:/app/pipelines   
+      - ./app/prototypes:/app/prototypes
     environment:
-      - PIPELINES_API_KEY=free_pass # any string, will be used to add pipelines to webui
+      PIPELINES_API_KEY: "0p3n-w3bu!" # any string, will be used to add pipelines to webui    
+      OLLAMA_BASE_URL: "https://genai-01.uni-hildesheim.de/ollama"
+      OLLAMA_API_KEY: ""
+      SPARQL_BASE_URL: "http://host.docker.internal:7200/repositories/ontobot"
     restart: unless-stopped

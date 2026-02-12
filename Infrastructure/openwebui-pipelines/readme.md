@@ -29,23 +29,43 @@ Pipelines must be manually registered in OpenWebUI:
 
 ### File Structure
 
-Place Python files in `pipelines/` directory:
+Pipeline project has the following structure:
+
 ```
 openwebui-pipelines/
-├── pipelines/
-│   ├── test-pipeline.py
-│   ├── my-custom-pipeline.py
-│   └── another-pipeline.py
+└── app/                              <- uv project root
+    ├── pipelines/ 
+    │   └── your_pipeline.py  
+    ├── prototypes/
+    │    ├── utils/
+    │    └── your_pipeline_lib/
+	│	    └── your_pipeline_code.py
+	└── data/
 ```
 
-> I would recommend to even copy the whole directory with the template and just change the template file for each new pipeline. This way you have all the freedom to add any additional files you need for your pipeline.
+- `app/` - is a `uv` project root. You can run `uv` commands there. [What is uv?](https://docs.astral.sh/uv/)
+- `app/pipelines/` - place your pipeline definitions there ([Pipeline definition template](#pipeline_template)). **Every** `.py` file from `/pipelines` folder is interpreted as a pipeline, thus **must** have `Pipeline` class defined 
+- `app/prototypes/`- place your implementation here. 
+  - To import your logic inside pipeline interface, use `from prototypes.<your_pipeline_lib>.<your_pipeline_code> import <>`
+  - To test your implementation, run it as a module (to ensure correct pathing): `uv run -m prototypes.<your_pipeline_lib>.<your_pipeline_code>`
+  - To add dependencies, do:
+    1. `import <dep_name>`
+    2. run `uv add <dep_name>`  
+	3. Inside your pipeline definition add dependency to requirements list: `requirements: dep1, dep2, <dep_name>`
+  - *ALL pipelines share the same environment inside container, and in uv project too*. 
+- `app/data/` - intended to store cached data (e.g. embedding model files) to use, create a folder there. NOT mapped between host and container to avoid permissions errors, also to force data recreation inside container as a test
+
+### Info
+- `uv` can be used ONLY LOCALLY - inside container there is no uv - do not rely on it.
+- if you prefer full isolation of your pipeline code, copy `openwebui-pipelines/` and use it as a template (you need to setup main `docker-compose.yml` yourself). 
+- For individual prototypes documentation, look into `readme.md` inside `/app` dir 
 
 ### Pipeline Template
 
 ```python
 """
 title: Pipeline Name
-author: your-name
+author: ontobot
 date: 2026-02-11
 version: 1.0
 description: Brief description of what this pipeline does.
@@ -53,12 +73,33 @@ requirements: package1, package2
 """
 
 from typing import List, Union, Generator, Iterator
-from schemas import OpenAIChatMessage
+from pydantic import BaseModel
+
+# use logger for reliable logging, as you work with async stuff
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class Pipeline:
+	class Valves(BaseModel):  # persistent settings of your pipeline. Some are required! read documentation!         
+        OLLAMA_BASE_URL: str  # e.g
+        OLLAMA_API_KEY: str   # e.g
+		test_number:    int   # e.g
+
     def __init__(self):
-        # Initialize any state/variables
+		self.type = "manifold" | "pipe" | "filter" # require different initialization and methods, read documetation!
+		self.id = "yourpipeline"                   # must have
+        self.name = "YourPipeline/"                # something human readable, for "manifold" its a prefix, not used for "filter"
+		# Initialize valves
+		self.valves = self.Valves(
+            **{
+                "OLLAMA_BASE_URL": os.getenv("OLLAMA_BASE_URL", ""), # e.g
+                "OLLAMA_API_KEY": os.getenv("OLLAMA_API_KEY", "")    # e.g
+            }
+        )
+		
+        # Initialize any other state/variables
         pass
 
     async def on_startup(self):
@@ -84,3 +125,4 @@ class Pipeline:
 - [OpenWebUI Pipelines Documentation](https://docs.openwebui.com/features/pipelines/)
 - [OpenWebUI GitHub](https://github.com/open-webui/open-webui)
 - [Pipelines GitHub](https://github.com/open-webui/pipelines)
+- [Pipelines Examples](https://github.com/open-webui/pipelines/tree/main/examples)

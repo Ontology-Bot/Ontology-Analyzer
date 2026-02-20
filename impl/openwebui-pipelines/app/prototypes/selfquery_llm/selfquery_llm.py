@@ -6,7 +6,7 @@ import json
 import logging
 import re
 import time
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from SPARQLWrapper import JSON, TURTLE, SPARQLWrapper
 
@@ -17,7 +17,7 @@ logger.setLevel(logging.INFO)
 
 QUERY_TYPE_RE = re.compile(r"^\s*(SELECT|ASK|CONSTRUCT|DESCRIBE)\b", flags=re.IGNORECASE)
 FORBIDDEN_QUERY_RE = re.compile(
-    r"\b(INSERT|DELETE|DROP|CLEAR|CREATE|LOAD|COPY|MOVE|ADD|SERVICE|WITH|USING|VALUES\s*\{\s*<http)\b",
+    r"\b(INSERT|DELETE|DROP|CLEAR|CREATE|LOAD|COPY|MOVE|ADD|WITH|USING)\b",
     flags=re.IGNORECASE,
 )
 TEXT_TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+")
@@ -84,7 +84,9 @@ class SelfQueryLLM:
         self.min_iterations_before_early_stop = max(1, min(min_iterations_before_early_stop, self.max_iterations))
         self.min_score_improvement = max(0.0, min_score_improvement)
         self.global_time_budget_sec = max(1, global_time_budget_sec)
-        self.max_query_chars = max(256, max_query_chars)
+        self.max_rows = max_rows if max_rows > 0 else -1
+        self.max_triples = max_triples if max_triples > 0 else -1
+        self.max_query_chars = max_query_chars if max_query_chars > 0 else -1
         self._schema_metadata_cache: str | None = None
         self._schema_ttl_cache: str | None = None
         self._endpoint_candidates_cache = self._build_endpoint_candidates()
@@ -527,22 +529,17 @@ class SelfQueryLLM:
         loop_context: str,
         iteration: int,
     ) -> str:
-        allowed_types = "SELECT, ASK, CONSTRUCT" + (", DESCRIBE" if self.allow_describe else "")
         prompt = (
-            "You are a SPARQL planner. Generate read-only SPARQL queries that can help answer the user question.\n"
+            "You are a SPARQL planner. Generate SPARQL queries that can help answer the user question.\n"
             "Rules:\n"
             "1. Generate up to {count} queries.\n"
-            "2. Query types allowed: {allowed_types}.\n"
-            "3. Keep every query bounded with LIMIT {max_rows} for SELECT and LIMIT {max_triples} for CONSTRUCT when applicable.\n"
-            "4. Output STRICT JSON object with key 'queries' and value as string array. No markdown.\n\n"
+            "2. Do not generate SPARQL Update or write operations (e.g., INSERT, DELETE, DROP, CLEAR, CREATE, LOAD, COPY, MOVE, ADD, WITH, USING).\n"
+            "3. Output STRICT JSON object with key 'queries' and value as string array. No markdown.\n\n"
             "Iteration: {iteration}.\n"
             "Schema metadata:\n{schema}\n\n"
             "User question:\n{question}"
         ).format(
             count=self.query_candidates,
-            allowed_types=allowed_types,
-            max_rows=self.max_rows,
-            max_triples=self.max_triples,
             iteration=iteration,
             schema=schema_metadata,
             question=user_query,
@@ -677,12 +674,12 @@ class SelfQueryLLM:
 
             try:
                 candidate_start = time.monotonic()
-                if query_type in {"SELECT", "ASK", "DESCRIBE"}:
-                    payload = self._run_raw_json(query)
-                    preview, score = self._score_json_payload(payload, user_query)
-                else:
+                if query_type == "CONSTRUCT":
                     payload = self._run_construct(query)
                     preview, score = self._score_construct_payload(payload, user_query)
+                else:
+                    payload = self._run_raw_json(query)
+                    preview, score = self._score_json_payload(payload, user_query)
                 logger.info(
                     "[SelfQueryLLM] candidate %d success | duration=%.2fs | score=%.3f | preview_chars=%d",
                     index,
@@ -744,7 +741,7 @@ class SelfQueryLLM:
         except Exception:
             pass
 
-        fallback = re.findall(r"(?is)((?:SELECT|ASK|CONSTRUCT)\s+.*?)(?=(?:\n\s*(?:SELECT|ASK|CONSTRUCT)\s)|\Z)", content)
+        fallback = re.findall(r"(?is)((?:PREFIX\s+[^\n]+\n|BASE\s+[^\n]+\n|\s)*(?:SELECT|ASK|CONSTRUCT|DESCRIBE)\s+.*?)(?=(?:\n\s*(?:PREFIX\s+[^\n]+\n|BASE\s+[^\n]+\n|\s)*(?:SELECT|ASK|CONSTRUCT|DESCRIBE)\s)|\Z)", content)
         if fallback:
             return [snippet.strip() for snippet in fallback if snippet.strip()]
         return []
@@ -754,21 +751,11 @@ class SelfQueryLLM:
         return match.group(1).upper() if match else "UNKNOWN"
 
     def _validate_query(self, query: str, query_type: str | None = None) -> tuple[bool, str | None]:
-        if len(query) > self.max_query_chars:
+        if self.max_query_chars > 0 and len(query) > self.max_query_chars:
             return False, f"Query exceeds max_query_chars ({self.max_query_chars})"
-
-        query_type = query_type or self._query_type(query)
-        allowed_types = {"SELECT", "ASK", "CONSTRUCT"}
-        if self.allow_describe:
-            allowed_types.add("DESCRIBE")
-        if query_type not in allowed_types:
-            return False, f"Only {', '.join(sorted(allowed_types))} are allowed"
 
         if FORBIDDEN_QUERY_RE.search(query):
             return False, "Query contains forbidden operation"
-
-        if query_type in {"SELECT", "CONSTRUCT"} and "limit" not in query.lower():
-            return False, "Row/graph returning query must include LIMIT"
 
         return True, None
 
@@ -777,7 +764,10 @@ class SelfQueryLLM:
         logger.info("[SelfQueryLLM] schema SELECT start | timeout=%ss", self.timeout_sec)
         payload = self._run_raw_json(query)
         rows: list[dict[str, str]] = []
-        for binding in payload.get("results", {}).get("bindings", [])[: self.max_rows]:
+        bindings = payload.get("results", {}).get("bindings", [])
+        if self.max_rows > 0:
+            bindings = bindings[: self.max_rows]
+        for binding in bindings:
             row: dict[str, str] = {}
             for key, value in binding.items():
                 row[key] = value.get("value", "")
@@ -822,7 +812,7 @@ class SelfQueryLLM:
 
     def _run_raw_json(self, query: str) -> dict[str, Any]:
         query_type = self._query_type(query)
-        return_format = TURTLE if query_type == "DESCRIBE" else JSON
+        return_format = TURTLE if query_type in {"DESCRIBE", "CONSTRUCT"} else JSON
 
         def _runner(sparql: SPARQLWrapper) -> dict[str, Any]:
             if query_type == "DESCRIBE":
@@ -845,7 +835,7 @@ class SelfQueryLLM:
                     },
                     "_describe_score": score,
                 }
-            return sparql.queryAndConvert()
+            return cast(dict[str, Any], sparql.queryAndConvert())
 
         return self._run_with_endpoint_retry(
             query=query,
@@ -880,7 +870,8 @@ class SelfQueryLLM:
 
         lines: list[str] = []
         lexical_hits = 0
-        for row in bindings[: self.max_rows]:
+        scored_bindings = bindings[: self.max_rows] if self.max_rows > 0 else bindings
+        for row in scored_bindings:
             compact: dict[str, str] = {}
             for key, value in row.items():
                 text = value.get("value", "")
@@ -890,7 +881,8 @@ class SelfQueryLLM:
             lines.append(json.dumps(compact, ensure_ascii=False))
 
         preview = "\n".join(lines) if lines else "No rows returned"
-        score = min(1.0, (len(lines) / max(1, self.max_rows)) + (lexical_hits * 0.03))
+        score_denominator = max(1, self.max_rows if self.max_rows > 0 else len(scored_bindings))
+        score = min(1.0, (len(lines) / score_denominator) + (lexical_hits * 0.03))
         if "_describe_score" in payload:
             score = max(score, float(payload.get("_describe_score", 0.0)))
         return preview, score
@@ -940,7 +932,7 @@ class SelfQueryLLM:
             "OPTIONAL { ?s <http://www.w3.org/2000/01/rdf-schema#label> ?label } "
             "OPTIONAL { ?s <http://www.w3.org/2004/02/skos/core#prefLabel> ?label } "
             f"FILTER({where}) "
-            f"}} LIMIT {self.max_rows}"
+            "}"
         )
 
         queries.append(
@@ -949,7 +941,7 @@ class SelfQueryLLM:
             "OPTIONAL { ?s <http://www.w3.org/2000/01/rdf-schema#label> ?label } "
             "OPTIONAL { ?s <http://www.w3.org/2004/02/skos/core#prefLabel> ?label } "
             f"FILTER({where}) "
-            f"}} LIMIT {self.max_rows}"
+            "}"
         )
 
         return queries[: self.lexical_max_candidates]
@@ -957,7 +949,8 @@ class SelfQueryLLM:
     def _score_construct_payload(self, turtle_payload: str, user_query: str) -> tuple[str, float]:
         query_tokens = set(TEXT_TOKEN_RE.findall(user_query.lower()))
         lines = [line.strip() for line in turtle_payload.splitlines() if line.strip() and not line.strip().startswith("@prefix")]
-        lines = lines[: self.max_triples]
+        if self.max_triples > 0:
+            lines = lines[: self.max_triples]
 
         lexical_hits = 0
         for line in lines:
@@ -965,7 +958,8 @@ class SelfQueryLLM:
             lexical_hits += len(query_tokens.intersection(tokens))
 
         preview = "\n".join(lines) if lines else "No triples returned"
-        score = min(1.0, (len(lines) / max(1, self.max_triples)) + (lexical_hits * 0.03))
+        score_denominator = max(1, self.max_triples if self.max_triples > 0 else len(lines))
+        score = min(1.0, (len(lines) / score_denominator) + (lexical_hits * 0.03))
         return preview, score
 
     def _escape_literal(self, raw: str) -> str:
@@ -977,7 +971,7 @@ class SelfQueryLLM:
             "SELECT ?s ?p ?o WHERE { "
             "?s ?p ?o . "
             f"FILTER(CONTAINS(LCASE(STR(?s)), LCASE('{escaped}')) || CONTAINS(LCASE(STR(?o)), LCASE('{escaped}'))) "
-            f"}} LIMIT {self.max_rows}"
+            "}"
         )
 
     def _short(self, value: str, max_len: int = 160) -> str:

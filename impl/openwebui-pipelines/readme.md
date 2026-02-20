@@ -149,7 +149,7 @@ class Pipeline:
 - Purpose: self-querying ontology QA pipeline.
 - Flow:
     1. generate SPARQL candidates from user question and sampled schema metadata,
-    2. execute guarded SPARQL (`SELECT`, `ASK`, `CONSTRUCT`),
+    2. execute SPARQL read queries while rejecting write/update operations,
     3. pack top evidence and ask LLM for final answer.
 - Required valves:
     - `SPARQL_BASE_URL`
@@ -157,6 +157,10 @@ class Pipeline:
     - `LLM_BASE_URL`
     - `LLM_API_KEY`
     - `top_k`, `query_candidates`, `timeout_sec`, `max_rows`, `max_triples`
+
+- Behavior notes:
+    - Candidate generation does not inject `LIMIT` by default.
+    - Use `max_rows <= 0` and `max_triples <= 0` to disable internal truncation.
 
 Provider switching is global for all pipelines via `docker-compose.yml` environment values.
 

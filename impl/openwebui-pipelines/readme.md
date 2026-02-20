@@ -96,8 +96,9 @@ logger.setLevel(logging.INFO)
 
 class Pipeline:
 	class Valves(BaseModel):  # persistent settings of your pipeline. Some are required! read documentation!         
-        OLLAMA_BASE_URL: str  # e.g
-        OLLAMA_API_KEY: str   # e.g
+        LLM_PROVIDER: str  # "openai_compat" or "ollama"
+        LLM_BASE_URL: str  # e.g https://chat-ai.academiccloud.de/v1/
+        LLM_API_KEY: str   # e.g
 		test_number:    int   # e.g
 
     def __init__(self):
@@ -107,8 +108,9 @@ class Pipeline:
 		# Initialize valves
 		self.valves = self.Valves(
             **{
-                "OLLAMA_BASE_URL": os.getenv("OLLAMA_BASE_URL", ""), # e.g
-                "OLLAMA_API_KEY": os.getenv("OLLAMA_API_KEY", "")    # e.g
+				"LLM_PROVIDER": os.getenv("LLM_PROVIDER", "openai_compat"),
+				"LLM_BASE_URL": os.getenv("LLM_BASE_URL", "https://chat-ai.academiccloud.de/v1/"),
+				"LLM_API_KEY": os.getenv("LLM_API_KEY", "")
             }
         )
 		
@@ -139,3 +141,27 @@ class Pipeline:
 - [OpenWebUI GitHub](https://github.com/open-webui/open-webui)
 - [Pipelines GitHub](https://github.com/open-webui/pipelines)
 - [Pipelines Examples](https://github.com/open-webui/pipelines/tree/main/examples)
+
+## Included pipelines
+
+### `selfquery_llm.py`
+
+- Purpose: self-querying ontology QA pipeline.
+- Flow:
+    1. generate SPARQL candidates from user question and sampled schema metadata,
+    2. execute SPARQL read queries while rejecting write/update operations,
+    3. pack top evidence and ask LLM for final answer.
+- Required valves:
+    - `SPARQL_BASE_URL`
+    - `LLM_PROVIDER` (`openai_compat` or `ollama`)
+    - `LLM_BASE_URL`
+    - `LLM_API_KEY`
+    - `top_k`, `query_candidates`, `timeout_sec`, `max_rows`, `max_triples`
+
+- Behavior notes:
+    - Candidate generation does not inject `LIMIT` by default.
+    - Use `max_rows <= 0` and `max_triples <= 0` to disable internal truncation.
+
+Provider switching is global for all pipelines via `docker-compose.yml` environment values.
+
+If your ontology is loaded as separate named graphs (e.g. TBox and ABox files), this pipeline currently queries across all graphs by default.

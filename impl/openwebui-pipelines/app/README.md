@@ -13,7 +13,7 @@
 - Approach:
 	1. collect ontology schema metadata from SPARQL endpoint,
 	2. ask LLM to generate multiple SPARQL candidates,
-	3. validate and execute SELECT/ASK/CONSTRUCT queries,
+	3. validate and execute SPARQL read queries (write/update operations are rejected),
 	4. rank evidence and synthesize answer with query references.
 
 ## Configuration
@@ -29,6 +29,10 @@ SelfQueryLLM valves:
 - `timeout_sec`
 - `max_rows`
 - `max_triples`
+
+Notes:
+- No `LIMIT` is injected by default into generated candidate queries.
+- Setting `max_rows` or `max_triples` to a value <= `0` disables internal truncation.
 
 ## Data assumptions
 

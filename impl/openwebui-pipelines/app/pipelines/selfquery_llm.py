@@ -37,8 +37,8 @@ class Pipeline:
         top_k: int = 3
         query_candidates: int = 3
         timeout_sec: int = 20
-        max_rows: int = 100
-        max_triples: int = 30
+        max_rows: int = -1
+        max_triples: int = -1
         planner_timeout_sec: int = 45
         planner_max_tokens: int = -1
         schema_graph_uri: str = "http://example.com/output_hierarchy_materialflow_libraries_only-graph"
@@ -56,7 +56,7 @@ class Pipeline:
         min_iterations_before_early_stop: int = 3
         min_score_improvement: float = 0.02
         global_time_budget_sec: int = 90
-        max_query_chars: int = 8000
+        max_query_chars: int = -1
         progress_output_mode: str = "events"  # options: "events", "text", "both"
         LLM_PROVIDER: str = "openai_compat"
         LLM_BASE_URL: str = "https://chat-ai.academiccloud.de/v1/"
@@ -150,13 +150,6 @@ class Pipeline:
         logger.info("Valves updated")
         self._update()
 
-    def _resolve_progress_mode(self) -> tuple[bool, bool]:
-        progress_mode = self.valves.progress_output_mode.strip().lower()
-        if progress_mode not in {"events", "text", "both"}:
-            progress_mode = "events"
-        return progress_mode in {"events", "both"}, progress_mode in {"text", "both"}
-
-   
 
     def _compact_query_preview(self, value: str) -> str:
         compact = " ".join(str(value).split())
@@ -309,7 +302,10 @@ class Pipeline:
     ) -> Union[str, Generator, Iterator]:
         request_id = uuid.uuid4().hex[:8]
         pipe_start = time.monotonic()
-
+        logger.info(f"--- Pipeline triggered for {__name__} | request_id={request_id} ---")
+        logger.info("[%s] User message received | length=%d", request_id, len(user_message))
+        logger.info("[%s] Body %s", request_id, body)
+        
         if self.model is None or self.client is None:
             raise ValueError("Oops! Forgot to initialize valves!")
 
@@ -320,12 +316,13 @@ class Pipeline:
         logger.info("[%s] Inlet:%s model=%s stream=%s", request_id, __name__, model_id, body.get("stream", False))
         logger.info("[%s] UserQuery len=%d", request_id, len(user_message))
 
-        emit_events, emit_text = self._resolve_progress_mode()
 
         retrieval_start = time.monotonic()
-
+        streaming = body.get("stream", False)
+        logger.info("[%s] Starting retrieval | streaming=%s", request_id, streaming)
+        
         try:
-            if body.get("stream", False):
+            if streaming:
                 def stream_generator(client):
                     progress_queue: queue.Queue[dict[str, Any]] = queue.Queue()
                     retrieval_done = threading.Event()
@@ -360,20 +357,15 @@ class Pipeline:
 
                         status_data, _ = self._build_status_data(progress)
 
-                        if emit_events:
-                            if status_data.get("hidden"):
-                                continue
-                            yield {
-                                "event": {
-                                    "type": "status",
-                                    "data": status_data,
-                                }
+                        if status_data.get("hidden"):
+                            continue
+                        
+                        yield {
+                            "event": {
+                                "type": "status",
+                                "data": status_data,
                             }
-
-                        if emit_text:
-                            line = self._format_progress_line(progress)
-                            if line:
-                                yield line
+                        }
 
                     msg, _, _ = self._build_prompt_with_retrieval(
                         request_id=request_id,
@@ -403,26 +395,20 @@ class Pipeline:
 
                 return stream_generator(self.client)
 
-            non_stream_progress: list[str] = []
-
-            def on_non_stream_progress(event: dict[str, Any]) -> None:
-                line = self._format_progress_line(event)
-                if line:
-                    non_stream_progress.append(line)
-
             retrieval, retrieval_error = self._run_retrieval(
                 request_id=request_id,
                 model_id=model_id,
                 user_message=user_message,
                 retrieval_start=retrieval_start,
-                progress_callback=on_non_stream_progress if emit_text else None,
             )
+            
             msg, _, _ = self._build_prompt_with_retrieval(
                 request_id=request_id,
                 retrieval=retrieval,
                 retrieval_error=retrieval_error,
                 user_message=user_message,
             )
+            
             set_last_message("user", messages, msg)
             logger.info("[%s] Final prompt injected into last user message", request_id)
 
@@ -432,8 +418,7 @@ class Pipeline:
                 messages=messages,
             )
             logger.info("[%s] Non-stream chat finished | total=%.2fs", request_id, time.monotonic() - pipe_start)
-            if emit_text and non_stream_progress:
-                return "".join(non_stream_progress) + response
+            
             return response
         except Exception as error:
             logger.exception("[%s] Pipeline failure after %.2fs", request_id, time.monotonic() - pipe_start)

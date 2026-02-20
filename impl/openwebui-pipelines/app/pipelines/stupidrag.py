@@ -5,19 +5,19 @@ date: 2026-02-11
 version: 1.0
 license: MIT
 description: It takes ontology and embeds triples (converting them to sentences before)
-requirements: ollama, sentence_transformers, chromadb, sparqlwrapper
+requirements: ollama, openai, sentence_transformers, chromadb, sparqlwrapper
 """
 
 from typing import List, Union, Generator, Iterator
-from ollama import Client
 from pydantic import BaseModel
 import os
 
 import traceback
 
 try:
-    from prototypes.rag.stupidrag import StupidRAG
+    from prototypes.stupidrag.stupidrag import StupidRAG
     from prototypes.utils.main import set_last_message, get_cache_path
+    from prototypes.utils.llm_adapter import build_llm_adapter
 except Exception as e:
     traceback.print_exc()
     raise
@@ -30,8 +30,10 @@ logger.setLevel(logging.INFO)
 class Pipeline:
     class Valves(BaseModel):
         top_k: int = 5
-        OLLAMA_BASE_URL: str
-        OLLAMA_API_KEY: str
+        LLM_PROVIDER: str = "openai_compat"
+        LLM_BASE_URL: str = "https://chat-ai.academiccloud.de/v1/"
+        LLM_API_KEY: str
+        LLM_DEFAULT_MODEL: str = ""
         SPARQL_BASE_URL: str
         
     def __init__(self):
@@ -45,8 +47,10 @@ class Pipeline:
 
         self.valves = self.Valves(
             **{ # type: ignore (we do not initialize top_k here)
-                "OLLAMA_BASE_URL": os.getenv("OLLAMA_BASE_URL", ""),
-                "OLLAMA_API_KEY": os.getenv("OLLAMA_API_KEY", ""),
+                "LLM_PROVIDER": os.getenv("LLM_PROVIDER", "openai_compat"),
+                "LLM_BASE_URL": os.getenv("LLM_BASE_URL", "https://chat-ai.academiccloud.de/v1/"),
+                "LLM_API_KEY": os.getenv("LLM_API_KEY", ""),
+                "LLM_DEFAULT_MODEL": os.getenv("LLM_DEFAULT_MODEL", ""),
                 "SPARQL_BASE_URL": os.getenv("SPARQL_BASE_URL", "")
             }
         )
@@ -59,29 +63,22 @@ class Pipeline:
             if self.client is None:
                 raise ValueError("Oops! Forgot to initialize valves!")
             
-            model_data = self.client.list()
-            
-            # model_data is {'models': [...]}
-            return [
-                {
-                    "id": m['name'],
-                    "name": m['name']
-                }
-                for m in model_data.get('models', [])
-            ]
+            return self.client.list_models()
         except Exception as e:
             logger.error(f"Discovery error: {e}")
-            return [{"id": "llama3", "name": "StupidRAG (Fallback model)"}]
+            fallback = self.valves.LLM_DEFAULT_MODEL or "fallback-model"
+            return [{"id": fallback, "name": "StupidRAG (Fallback model)"}]
         
     
     def _update(self) -> None:
-        if (self.valves.SPARQL_BASE_URL == "" or self.valves.OLLAMA_BASE_URL == ""):
-            logger.error("Empty SPARQL_BASE_URL and OLLAMA_BASE_URL")
+        if (self.valves.SPARQL_BASE_URL == "" or self.valves.LLM_BASE_URL == ""):
+            logger.error("Empty SPARQL_BASE_URL and LLM_BASE_URL")
             return
         self.model = StupidRAG(self.valves.top_k, self.valves.SPARQL_BASE_URL, cachepath=get_cache_path())
-        self.client = Client(
-            host=self.valves.OLLAMA_BASE_URL,
-            headers={"Authorization": f"Bearer {self.valves.OLLAMA_API_KEY}"} if self.valves.OLLAMA_API_KEY else {}
+        self.client = build_llm_adapter(
+            provider=self.valves.LLM_PROVIDER,
+            base_url=self.valves.LLM_BASE_URL,
+            api_key=self.valves.LLM_API_KEY,
         )
 
 
@@ -114,7 +111,9 @@ class Pipeline:
             raise ValueError("Oops! Forgot to initialize valves!")
 
         # 0. get model id
-        model_id = body.get("model", "").split(".", 1)[-1] # Strip pipe prefix
+        model_id = body.get("model", "").split(".", 1)[-1] or self.valves.LLM_DEFAULT_MODEL # Strip pipe prefix
+        if not model_id:
+            raise ValueError("No model selected and LLM_DEFAULT_MODEL is empty")
 
         logger.info(f"Inlet:{__name__} model {model_id}")
         logger.info(f"Inlet function called with body: {body}")
@@ -141,21 +140,18 @@ class Pipeline:
         try:
             if body.get("stream", False):
                 def stream_generator(client):
-                    for chunk in client.chat(
+                    for chunk in client.stream_text(
                         model=model_id,
-                        messages=messages,
-                        stream=True
+                        messages=messages
                     ):
-                        if "message" in chunk and "content" in chunk["message"]:
-                            yield chunk["message"]["content"]
+                        yield chunk
                 return stream_generator(self.client)
             else:
-                response = self.client.chat(
+                response = self.client.chat_text(
                     model=model_id,
-                    messages=messages,
-                    stream=False
+                    messages=messages
                 )
-                return response['message']['content']
+                return response
         except Exception as e:
             return f"Error calling LLM: {str(e)}"
 

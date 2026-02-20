@@ -3,5 +3,5 @@ include:
   - ./neo4j/docker-compose.yml
   - ./graphdb-sparql/docker-compose.yml
   - ./openwebui/docker-compose.yml
-  - ./openwebui-pipelines/docker-compose.yml
+  # - ./openwebui-pipelines/docker-compose.yml
   - ./traefik/docker-compose.yml

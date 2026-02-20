@@ -1,5 +1,5 @@
 from prototypes.rag.hypergraph_model import HyperGraphDB
-from prototypes.rag.stupidrag import StupidRAG
+from prototypes.stupidrag.stupidrag import StupidRAG
 from prototypes.utils.main import get_cache_path
 
 def main():

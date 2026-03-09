@@ -5,3 +5,25 @@ include:
   - ./openwebui/docker-compose.yml
   - ./openwebui-pipelines/docker-compose.yml
   - ./traefik/docker-compose.yml
+services:
+  wiki-generator:
+    build:
+      context: ./wiki-generator
+    container_name: wiki-generator
+    environment:
+      GRAPHDB_ENDPOINT: http://graphdb:7200/repositories/ontobot
+      QUERY_DIR: /app/queries
+      OUTPUT_DIR: /output
+    volumes:
+      - ./wiki-data:/output
+    depends_on:
+      - graphdb
+      - graphdb-init
+  aml-convert:
+    build:
+      context: ./wiki-generator
+    container_name: aml-convert
+    entrypoint: [ "python", "convert_aml.py" ]
+    volumes:
+      - ./wiki-generator/input:/input
+      - ./graphdb-sparql/_secret:/output

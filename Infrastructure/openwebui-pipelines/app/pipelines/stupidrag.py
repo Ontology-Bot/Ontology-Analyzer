@@ -5,11 +5,12 @@ date: 2026-02-11
 version: 1.0
 license: MIT
 description: It takes ontology and embeds triples (converting them to sentences before)
-requirements: ollama, sentence_transformers, chromadb, sparqlwrapper
+requirements: ollama, sentence_transformers, chromadb, sparqlwrapper, openai
 """
 
 from typing import List, Union, Generator, Iterator
 from ollama import Client
+from openai import OpenAI
 from pydantic import BaseModel
 import os
 
@@ -78,11 +79,15 @@ class Pipeline:
         if (self.valves.SPARQL_BASE_URL == "" or self.valves.OLLAMA_BASE_URL == ""):
             logger.error("Empty SPARQL_BASE_URL and OLLAMA_BASE_URL")
             return
-        self.model = StupidRAG(self.valves.top_k, self.valves.SPARQL_BASE_URL, cachepath=get_cache_path())
+        self.model = StupidRAG(self.valves.SPARQL_BASE_URL, cachepath=get_cache_path(), queries_limit=10_000)
         self.client = Client(
             host=self.valves.OLLAMA_BASE_URL,
             headers={"Authorization": f"Bearer {self.valves.OLLAMA_API_KEY}"} if self.valves.OLLAMA_API_KEY else {}
         )
+        # self.client = OpenAI(
+        #     api_key = "https://chat-ai.academiccloud.de/v1",
+        #     base_url = "https://chat-ai.academiccloud.de/v1",
+        # )
 
 
     def pipelines(self) -> List[dict]:
@@ -122,7 +127,7 @@ class Pipeline:
         logger.info(f"UserQuery: {user_message}")
 
         # 2. Get context
-        context = self.model.process(user_message)
+        context = self.model.process(user_message, self.valves.top_k)
 
         logger.info(f"Extracted context: {context}")
         # 3. Form new query with context
@@ -130,6 +135,8 @@ class Pipeline:
         if len(context) > 0:
             for c in context:
                 msg += f"{c}\n\n"
+            if len(context) == self.valves.top_k:
+                msg += "NOTE: There might be more relevant context, but only top-k is provided. \n\n"
         else:
             msg += "NO RELEVANT CONTEXT FOUND \n\n"
         msg += f"USER QUERY:\n{user_message}\n\nANSWER:\n"

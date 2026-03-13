@@ -1,0 +1,9 @@
+PREFIX ex: <http://example.org/plant#>
+
+SELECT DISTINCT ?rolePath
+WHERE {
+  ?x a ex:InternalElement ;
+     ex:rolePath ?rolePath .
+  FILTER(CONTAINS(LCASE(STR(?rolePath)), "conveyor"))
+}
+ORDER BY ?rolePath

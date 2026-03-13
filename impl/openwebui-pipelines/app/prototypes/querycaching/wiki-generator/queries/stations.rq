@@ -1,0 +1,10 @@
+PREFIX ex: <http://example.org/plant#>
+
+SELECT ?stationName
+WHERE {
+  ?s a ex:InternalElement ;
+     ex:rolePath ?r ;
+     ex:name ?stationName .
+  FILTER(CONTAINS(?r, "BMW_Structure_RoleClassLib/WorkCell"))
+}
+ORDER BY ?stationName

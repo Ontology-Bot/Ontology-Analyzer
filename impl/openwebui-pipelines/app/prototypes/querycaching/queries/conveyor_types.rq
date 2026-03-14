@@ -1,0 +1,12 @@
+PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX aml:  <https://w3id.org/hsu-aut/AutomationML#>
+PREFIX lib:  <http://www.semanticweb.org/AutomationML/ontologies/structure/libraries#>
+
+SELECT DISTINCT ?rolePath
+WHERE {
+  ?x rdf:type ?type .
+  FILTER(STRSTARTS(STR(?type), STR(lib:)))
+  BIND(REPLACE(STR(?type), "^.*[#/]", "") AS ?rolePath)
+  FILTER(CONTAINS(LCASE(?rolePath), "conveyor"))
+}
+ORDER BY ?rolePath

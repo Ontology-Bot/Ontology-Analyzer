@@ -1,0 +1,33 @@
+PREFIX aml:  <https://w3id.org/hsu-aut/AutomationML#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX :     <http://www.semanticweb.org/AutomationML/ontologies/structure#>
+
+SELECT DISTINCT ?fromName ?toName
+WHERE {
+  ?a (aml:hasInterface|:hasExternalInterface) ?ia .
+  ?ia aml:isLinkedTo ?ib .
+  ?b (aml:hasInterface|:hasExternalInterface) ?ib .
+
+  FILTER(?a != ?b)
+
+  OPTIONAL { ?a aml:hasName ?aName1 }
+  OPTIONAL { ?a rdfs:label ?aName2 }
+  OPTIONAL { ?b aml:hasName ?bName1 }
+  OPTIONAL { ?b rdfs:label ?bName2 }
+
+  OPTIONAL { ?a aml:hasRoleRequirement ?roleA }
+  OPTIONAL { ?b aml:hasRoleRequirement ?roleB }
+
+  BIND(COALESCE(?aName1, ?aName2, REPLACE(STR(?a), "^.*[#/]", "")) AS ?fromName)
+  BIND(COALESCE(?bName1, ?bName2, REPLACE(STR(?b), "^.*[#/]", "")) AS ?toName)
+
+  FILTER(
+    CONTAINS(LCASE(STR(?roleA)), "conveyor") ||
+    CONTAINS(LCASE(STR(?roleB)), "conveyor") ||
+    CONTAINS(LCASE(STR(?roleA)), "track") ||
+    CONTAINS(LCASE(STR(?roleB)), "track") ||
+    CONTAINS(LCASE(STR(?roleA)), "materialhandlingcomponent") ||
+    CONTAINS(LCASE(STR(?roleB)), "materialhandlingcomponent")
+  )
+}
+LIMIT 300

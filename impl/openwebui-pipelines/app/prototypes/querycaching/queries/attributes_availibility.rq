@@ -1,0 +1,12 @@
+PREFIX aml:  <https://w3id.org/hsu-aut/AutomationML#>
+PREFIX :     <http://www.semanticweb.org/AutomationML/ontologies/structure#>
+
+SELECT DISTINCT ?elementName
+WHERE {
+  ?e aml:hasName ?elementName ;
+     (aml:hasAttribute|:hasAttribute) ?attr .
+
+  ?attr aml:hasName ?attrName .
+  FILTER(LCASE(STR(?attrName)) = "availability")
+}
+ORDER BY ?elementName

@@ -1,9 +1,0 @@
-PREFIX ex: <http://example.org/plant#>
-
-SELECT ?fromName ?toName
-WHERE {
-  ?a ex:connectedTo ?b ;
-     ex:name ?fromName .
-  ?b ex:name ?toName .
-}
-LIMIT 300

@@ -1,14 +1,16 @@
 services:
   wiki-generator:
     build:
-      context: ./app/prototypes/querycaching/wiki-generator
+      context: ./app/prototypes/querycaching
     container_name: wiki-generator
     environment:
       GRAPHDB_ENDPOINT: http://host.docker.internal:7200/repositories/ontobot
       QUERY_DIR: /app/queries
-      OUTPUT_DIR: /output
+      OUTPUT_DIR: /app/output
     volumes:
-      - ./app/prototypes/querycaching/wiki-data:/output
+      - ./app/prototypes/querycaching/queries:/app/queries
+      - ./app/prototypes/querycaching/output:/app/output
+
 
   pipelines:
     image: ghcr.io/open-webui/pipelines:main

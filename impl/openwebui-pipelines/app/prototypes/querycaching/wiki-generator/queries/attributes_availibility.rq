@@ -1,9 +1,0 @@
-PREFIX ex: <http://example.org/plant#>
-
-SELECT ?elementName
-WHERE {
-  ?e a ex:InternalElement ;
-     ex:hasAttributeName "availability" ;
-     ex:name ?elementName .
-}
-ORDER BY ?elementName

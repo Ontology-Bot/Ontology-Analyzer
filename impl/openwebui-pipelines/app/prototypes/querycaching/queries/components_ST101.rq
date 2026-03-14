@@ -1,0 +1,33 @@
+PREFIX rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs:   <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX aml:    <https://w3id.org/hsu-aut/AutomationML#>
+PREFIX :       <http://www.semanticweb.org/AutomationML/ontologies/structure#>
+PREFIX lib:    <http://www.semanticweb.org/AutomationML/ontologies/structure/libraries#>
+PREFIX partof: <http://www.ontologydesignpatterns.org/cp/owl/partof.owl#>
+
+SELECT DISTINCT ?componentName ?rolePath
+WHERE {
+  ?st rdf:type lib:MaterialFlow_WorkCell .
+  OPTIONAL { ?st aml:hasName ?n }
+  OPTIONAL { ?st rdfs:label ?l }
+
+  BIND(COALESCE(?n, ?l) AS ?stName)
+  FILTER(BOUND(?stName))
+  FILTER(CONTAINS(STR(?stName), "ST101"))
+
+  ?st (aml:hasInternalElement|:contains|aml:hasPart|partof:hasPart)+ ?c .
+
+  OPTIONAL { ?c aml:hasName ?cn }
+  OPTIONAL { ?c rdfs:label ?cl }
+  BIND(COALESCE(?cn, ?cl) AS ?componentName)
+
+  OPTIONAL {
+    ?c rdf:type ?role .
+    FILTER(STRSTARTS(STR(?role), STR(lib:)))
+    BIND(REPLACE(STR(?role), "^.*[#/]", "") AS ?rolePath)
+  }
+
+  FILTER(BOUND(?componentName))
+  FILTER(?componentName != ?stName)
+}
+ORDER BY ?componentName

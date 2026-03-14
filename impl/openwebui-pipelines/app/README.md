@@ -16,6 +16,17 @@
 	3. validate and execute SPARQL read queries (write/update operations are rejected),
 	4. rank evidence and synthesize answer with query references.
 
+### QueryCaching
+- Pipeline: `app/pipelines/query_caching.py`
+- Prototype: `app/prototypes/query_caching/query_caching.py`
+- Approach:
+	1. retrieve relevant Markdown knowledge pages generated from SPARQL queries,
+	2. answer user questions using Retrieval-Augmented Generation over the Markdown knowledge base,
+	3. if no suitable page exists, generate a SPARQL query to retrieve the required information,
+	4. convert the SPARQL query results into a new Markdown page,
+	5. store the generated page as a cached knowledge entry for future queries.
+
+
 ## Configuration
 
 SelfQueryLLM valves:

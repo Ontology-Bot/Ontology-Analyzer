@@ -1,4 +1,17 @@
 services:
+  wiki-generator:
+    build:
+      context: ./app/prototypes/querycaching
+    container_name: wiki-generator
+    environment:
+      GRAPHDB_ENDPOINT: http://host.docker.internal:7200/repositories/ontobot
+      QUERY_DIR: /app/queries
+      OUTPUT_DIR: /app/output
+    volumes:
+      - ./app/prototypes/querycaching/queries:/app/queries
+      - ./app/prototypes/querycaching/output:/app/output
+
+
   pipelines:
     image: ghcr.io/open-webui/pipelines:main
     container_name: pipelines
@@ -10,8 +23,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      PIPELINES_API_KEY: free_pass # any string, will be used to add pipelines to webui
-      LLM_PROVIDER: "openai_compat" # switch to "ollama" for Uni endpoint
+      PIPELINES_API_KEY: free_pass
+      LLM_PROVIDER: "openai_compat"
       LLM_BASE_URL: "https://chat-ai.academiccloud.de/v1/"
       LLM_API_KEY: ""
       LLM_DEFAULT_MODEL: "openai-gpt-oss-120b"

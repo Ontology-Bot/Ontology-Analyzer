@@ -20,11 +20,24 @@ PREFIX = """
 
 import re
 
+def extract_guid(s: str):
+    pattern = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    match = re.search(pattern, s)
+    return match.group() if match else None
+
 def split_camel_case(text: str):
     # Find uppercase letters and prepend a space
     result = re.sub(r'([A-Z])', r' \1', text)
     # Lowercase everything and strip leading/trailing whitespace
-    return result.lower().strip()
+    return result.strip() # .lower()
+
+def to_camel(text: str):
+    # its fake camel because it starts with capital letter
+    parts = text.split()
+    if len(parts) == 0:
+        return ""
+    words = [p.capitalize() for p in parts]
+    return "".join(words)
 
 def add_postfix(texts: list[str], ids: list[str] | None = None, line_ending="\r\n"):
     for i, item in enumerate(texts):
@@ -62,8 +75,9 @@ class BlockAttribute:
 
 
 class Connection:
-    def __init__(self, lnkType: str, lnkLabel: str, **kwargs) -> None:
+    def __init__(self, lnk: str, lnkType: str, lnkLabel: str, **kwargs) -> None:
         self.type = split_camel_case(lnkType)
+        self.guid = lnk
         self.label = lnkLabel
 
 class Block:
@@ -92,20 +106,26 @@ class Block:
         self.connections.append(Connection(**kwargs))
 
     def to_sentences(self) -> tuple[list[str], list[str]]:
-        res = [f"{self.label} is {self.type}", f"{self.label} is described as {self.descr}"]
+        """ tuple[sentences, ids]
+        """
+        res = [f"Instance `{self.label}` [`{self.guid}`]", f"`{self.label}` is {self.type}", f"`{self.label}` is described as {self.descr}"]
         for a in self.attrs.values():
             if a.value: 
-                res.append(f"{self.label} has {a.label} with value {a.value} {a.unit} described as {a.descr}")
+                res.append(f"`{self.label}` has `{a.label}` with value `{a.value} {a.unit}` described as {a.descr}")
             else:
-                res.append(f"{self.label} has {a.label} described as {a.descr}")
+                res.append(f"`{self.label}` has `{a.label}` described as {a.descr}")
             for sa in a.subattrs.values():
                 if sa.value: 
-                    res.append(f"{self.label} has {a.label} with {sa.label} equal {sa.value} {sa.unit}")
+                    res.append(f"`{self.label}` has `{a.label}` with `{sa.label}` equal `{sa.value} {sa.unit}`")
                 else:
-                    res.append(f"{self.label} has {a.label} with {sa.label}")
+                    res.append(f"`{self.label}` has `{a.label}` with `{sa.label}`")
         for c in self.connections:
-            res.append(f"{self.label} {c.type} {c.label}")
+            res.append(f"`{self.label}` {c.type} `{c.label}` [`{c.guid}`]")
         return res, [f"{self.guid}:{i}" for i in range(len(res))]
+    
+    def __repr__(self) -> str:
+        s, _ = self.to_sentences()
+        return f"{s}"
 
 
 class StupidRAG:
@@ -238,7 +258,7 @@ class StupidRAG:
 
     def _ingest_ontology(self, queries_limit: int | None = None):
         QUERY = """
-select ?s ?label ?type ?description ?attrLabel ?attrComment ?rootAttr ?attr ?attrValue ?attrUnit ?attrType ?lnkType ?lnkLabel where {
+select ?s ?label ?type ?description ?attrLabel ?attrComment ?rootAttr ?attr ?attrValue ?attrUnit ?attrType ?lnk ?lnkType ?lnkLabel where {
     ?s rdfs:label ?label .
     ?s rdf:type ?type .
     ?s rdfs:comment ?description .

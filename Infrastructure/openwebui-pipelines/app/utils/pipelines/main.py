@@ -2,7 +2,6 @@ import uuid
 import time
 
 from typing import List
-from schemas import OpenAIChatMessage
 
 import inspect
 from typing import get_type_hints, Literal, Tuple

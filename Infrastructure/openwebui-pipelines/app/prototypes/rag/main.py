@@ -3,15 +3,90 @@ from prototypes.rag.stupidrag import StupidRAG, split_camel_case
 from prototypes.rag.sparql_tools import SparqlTools
 from prototypes.utils.main import get_cache_path
 
+from pipelines.toolassist import Pipeline
+
+from openai import OpenAI
+
 import sys
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-def main():
-    print("Hello from spaqql tools tester!")
+# def main():
+#     API_URL = "https://chat-ai.academiccloud.de/v1"  # replace with your API URL
+#     API_KEY = "264c2532514e0ddf975695ffad589653"     # replace with your API key
 
-    SparqlTools("http://localhost:7200/repositories/ontobot", get_cache_path(), clean=True)
+#     client = OpenAI(
+#         api_key = API_KEY,
+#         base_url = API_URL
+#     )
+#     print(client.models.list())
+
+#     chat_completion = client.chat.completions.create(
+#         messages=[{"role":"system","content":"You are a helpful assistant"},{"role":"user","content":"How tall is the Eiffel tower?"}],
+#         model="meta-llama-3.1-8b-instruct",
+#     )
+#     print(chat_completion)
+
+    
+
+#     # chat_completion = client.chat.completions.create(
+#     #     messages=[{"role":"system","content":"You are a helpful assistant"},{"role":"user","content":"How tall is the Eiffel tower?"}],
+#     #     model= client.models.list(),
+#     # )
+  
+#     # Print full response as JSON
+#     # print(chat_completion) # You can extract the response text from the JSON object
+
+    
+
+def main():
+    print("Hello from sparql tools tester!")
+
+    clean = True
+    st = SparqlTools("http://localhost:7200/repositories/ontobot", get_cache_path(), clean=clean)
+    # print(st.get_definition("material handling component"))
+    # print(st.get_definition("work cell"))
+    # print(st.get_definition("DoubleTrack"))
+    # print(st.get_definition("roll conveyor"))
+    # print(st.get_definition("conveyor"))
+
+    # print(st.get_list("roll conveyor")) # ?
+
+    # print(st.get_list("conveyor")) # ?
+
+
+    # print(st.get_node_context("TL109"))
+    # print(st.get_node_context("TL111"))
+    # print(st.get_node_context("Instance_BMW_Group_836f5ffb-8d65-4495-86d4-677081e3142a"))
+
+
+    # test tools
+    tools = Pipeline.Tools(None, st)
+
+    # print(tools.get_materialflow_term_definition("BeltConveyor"))
+
+    print(tools.get_list_of("WorkCell")) # ?
+    print(tools.get_list_of("Production line")) # ?
+    print(tools.get_list_of("RollConveyor")) # ?
+
+
+    # print(tools.get_materialflow_term_definition("material handling component"))
+    # print(tools.get_materialflow_term_definition("work cell"))
+    # print(tools.get_materialflow_term_definition("DoubleTrack"))
+    # print(tools.get_materialflow_term_definition("roll conveyor"))
+    # print(tools.get_materialflow_term_definition("conveyor"))
+
+    # print(tools.get_list_of("roll conveyor")) # ?
+
+    # print(tools.get_list_of("conveyor")) # ?
+
+    # print(tools.get_materialflow_node_context("TL109"))
+    # print(tools.get_materialflow_node_context("TL000"))
+    # print(tools.get_materialflow_node_context("Instance_BMW_Group_836f5ffb-8d65-4495-86d4-677081e3142a"))
+
+    
+
 
 
 # def main():

@@ -1,0 +1,13 @@
+services:
+  deepeval:
+    env_file:
+      - .env
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: deepeval
+    ports:
+      - "${DEEPEVAL_PORT}:8000"
+    volumes:
+      - ./data:/app/data # persist DeepEval results
+    restart: unless-stopped

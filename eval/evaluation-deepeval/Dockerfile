@@ -5,7 +5,6 @@ RUN mkdir -p /app
 WORKDIR /app
 
 COPY ./app ./app
-COPY ./data ./data
 
 RUN pip install uv
 RUN uv pip install -r pyproject.toml

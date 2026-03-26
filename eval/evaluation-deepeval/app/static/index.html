@@ -361,6 +361,7 @@
   .prog-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 5px; }
   .prog-value { font-family: var(--mono); font-size: 20px; font-weight: 600; color: var(--text-bright); }
   .prog-value.accent { color: var(--accent); }
+  .prog-value.green { color: var(--green); }
 
   /* ─── Results list ─── */
   .result-row {
@@ -649,6 +650,10 @@
               <div class="prog-item">
                 <div class="prog-label">Tests Ran</div>
                 <div class="prog-value" id="prog-ran">0</div>
+              </div>
+              <div class="prog-item">
+                <div class="prog-label">Completed</div>
+                <div class="prog-value green" id="prog-total">0</div>
               </div>
             </div>
           </div>
@@ -1029,8 +1034,11 @@ function updateStatusUI(s) {
     const p = s.progress || {};
     detail.textContent = p.current_model ? `model: ${p.current_model}` : '';
     grid.style.display = 'grid';
-    document.getElementById('prog-generated').textContent = p.tests_generated ?? 0;
-    document.getElementById('prog-ran').textContent = p.tests_ran ?? 0;
+    const tg = p.tests_generated ?? 0;
+    const tr = p.tests_ran ?? 0;
+    document.getElementById('prog-generated').textContent = tg;
+    document.getElementById('prog-ran').textContent = tr;
+    document.getElementById('prog-total').textContent = `${p.total ? Math.round((tr+tg) / (2*p.total)*100) : 0}%`;
   } else {
     detail.textContent = s.status === 'error' ? (s.error || '') : (s.judge ? `judge: ${s.judge}` : '');
     grid.style.display = 'none';

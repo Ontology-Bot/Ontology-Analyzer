@@ -1,13 +1,9 @@
 from deepeval import evaluate
-from deepeval.metrics import GEval
-from deepeval.test_case import LLMTestCaseParams, LLMTestCase
-from openai import AsyncOpenAI, OpenAI
-from datetime import datetime
-import json
+from deepeval.test_case import LLMTestCase
 
 from .testcase_loader import get_testcases
 from .metrics import get_metrics
-from .clients import client
+from .clients import get_subject_client
 
 import logging
 logger = logging.getLogger(__name__)
@@ -25,11 +21,20 @@ def run_evaluation(judge: str, model: str, metric_list: list[str]):
             output = testcase["output"]
         else:
             logger.info(f"\tawaiting model completion for '{testcase['input']}' ({i}/{len(testcases)})")
-            response = client.responses.create(
+            # response = get_subject_client().responses.create(
+            #     model=model,
+            #     input=testcase["input"],
+            # )
+            # output = response.output_text
+
+            # use standard API - new one might be not available
+            response = get_subject_client().chat.completions.create(
                 model=model,
-                input=testcase["input"],
+                messages=[
+                    {"role": "user", "content": testcase["input"]}
+                ]
             )
-            output = response.output_text
+            output = response.choices[0].message.content
 
         deepeval_cases.append(LLMTestCase(
             input=testcase["input"],
@@ -48,12 +53,3 @@ def run_evaluation(judge: str, model: str, metric_list: list[str]):
     # run evaluation
     results = evaluate(deepeval_cases, selected_metrics)
     return results
-
-
-# criteria="Determine whether the actual output is factually correct based on the expected output.",
-#     # NOTE: you can only provide either criteria or evaluation_steps, and not both
-#     evaluation_steps=[
-#         "Check whether the facts in 'actual output' contradicts any facts in 'expected output'",
-#         "You should also heavily penalize omission of detail",
-#         "Vague language, or contradicting OPINIONS, are OK"
-#     ],

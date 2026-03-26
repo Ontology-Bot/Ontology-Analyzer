@@ -1,4 +1,4 @@
-from .clients import judge_async_client, judge_client
+from .clients import get_judge_async_client, get_judge_client
 
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCaseParams
@@ -13,6 +13,14 @@ def get_metrics(judge: str):
             name="Correctness",
             criteria="Determine whether the actual output is factually correct based on the expected output.",
             evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
-            model=OpenAIBaseLLM(judge, judge_client, judge_async_client)
+            model=OpenAIBaseLLM(judge, get_judge_client(), get_judge_async_client())
         )
     }
+
+# criteria="Determine whether the actual output is factually correct based on the expected output.",
+#     # NOTE: you can only provide either criteria or evaluation_steps, and not both
+#     evaluation_steps=[
+#         "Check whether the facts in 'actual output' contradicts any facts in 'expected output'",
+#         "You should also heavily penalize omission of detail",
+#         "Vague language, or contradicting OPINIONS, are OK"
+#     ],

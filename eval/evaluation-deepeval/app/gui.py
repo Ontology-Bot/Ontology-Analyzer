@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from .testcase_loader import set_testcases, load_testcases
 from .metrics import get_metrics
 from .scheuduler import Scheduler
+from .clients import get_subject_client, get_judge_client, test_connection, reset_connection
 
 import json
 import os
@@ -41,6 +42,37 @@ async def upload(file: UploadFile):
     set_testcases(data["tests"])
     return {"status": "uploaded", "count": len(data["tests"])}
  
+
+@app.get("/config/")
+async def get_config():
+    return {
+        "OPENAI_SUBJECT_BASE_URL": os.environ.get("OPENAI_SUBJECT_BASE_URL"),
+        "OPENAI_SUBJECT_API_KEY": os.environ.get("OPENAI_SUBJECT_API_KEY"),
+        "OPENAI_JUDGE_BASE_URL": os.environ.get("OPENAI_JUDGE_BASE_URL"),
+        "OPENAI_JUDGE_API_KEY": os.environ.get("OPENAI_JUDGE_API_KEY"),
+    }
+
+class ConfigRequest(BaseModel):
+    OPENAI_SUBJECT_BASE_URL: str
+    OPENAI_SUBJECT_API_KEY: str
+    OPENAI_JUDGE_BASE_URL: str
+    OPENAI_JUDGE_API_KEY: str
+
+@app.post("/config/")
+async def set_config(cr: ConfigRequest):
+    os.environ["OPENAI_SUBJECT_BASE_URL"] = cr.OPENAI_SUBJECT_BASE_URL
+    os.environ["OPENAI_SUBJECT_API_KEY"] = cr.OPENAI_SUBJECT_API_KEY
+    os.environ["OPENAI_JUDGE_BASE_URL"] = cr.OPENAI_JUDGE_BASE_URL
+    os.environ["OPENAI_JUDGE_API_KEY"] = cr.OPENAI_JUDGE_API_KEY
+    reset_connection()
+
+    
+@app.get("/config/status/")
+async def get_config_status():
+    return {
+        "subject": test_connection(get_subject_client()),
+        "judge": test_connection(get_judge_client()),
+    }
 
 class EvalRequest(BaseModel):
     judge: str

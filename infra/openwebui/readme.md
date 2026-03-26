@@ -27,7 +27,7 @@ By default, it uses uni API for ollama
 4. Pipe is only a wrapper, heavy stuff must be hosted in a separate container for example. A nicer way is to use pipelines (below)
 
 ### Pipelines
-- See `Infrastructure/openwebui-pipelines/` for more details on pipelines, which are a more powerful way to extend OpenWebUI with custom Python code. Pipelines run in a separate container and can be accessed by OpenWebUI via an internal API.
+- See `impl/openwebui-pipelines/` for more details on pipelines, which are a more powerful way to extend OpenWebUI with custom Python code. Pipelines run in a separate container and can be accessed by OpenWebUI via an internal API.
 
 ### Other Materials:
 1. Pipelines repo + examples - https://github.com/open-webui/pipelines/tree/main

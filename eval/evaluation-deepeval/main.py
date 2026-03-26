@@ -1,5 +1,5 @@
 from app.evaluator import run_evaluation
-from app.clients import client, judge_async_client, judge_client
+from app.clients import client
 from app.testcase_loader import load_testcases, get_testcases
 
 import os

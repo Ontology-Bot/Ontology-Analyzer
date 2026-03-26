@@ -5,7 +5,7 @@
 This is an `uv` project, meaning you can run it locally for debugging, or you can use it as a part of the infrastructure through Docker container.
 
 ### GUI
-To run gui, use `uv run uvicorn app.main:app --reload`. By default, UI is launched at port `8000` *inside container* when it starts.
+To run gui, use `uv run uvicorn app.gui:app --reload`. By default, UI is launched at port `8000` *inside container* when it starts. It automatically uses local `.env` file.
 
 ### CLI
 To launch project as cli, use `uv run -m app.cli <judge_model> <subject_models (comma sep)> <metrics (comma sep)> --env <env file> --testcases <golden-dataset.json>`

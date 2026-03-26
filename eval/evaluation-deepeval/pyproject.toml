@@ -4,4 +4,9 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "deepeval>=3.9.3",
+    "fastapi>=0.135.2",
+    "python-multipart>=0.0.22",
+    "uvicorn>=0.42.0",
+]

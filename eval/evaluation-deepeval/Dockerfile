@@ -4,9 +4,11 @@ RUN mkdir -p /app
 
 WORKDIR /app
 
-COPY ./app ./app
+COPY . .
 
 RUN pip install uv
-RUN uv pip install -r pyproject.toml
+RUN uv sync --no-dev --frozen
+# activate venv directly is not possible; full path here
+ENV PATH="/app/.venv/bin:$PATH"
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.gui:app", "--host", "0.0.0.0", "--port", "8000"]

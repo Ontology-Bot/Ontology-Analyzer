@@ -1,5 +1,6 @@
 services:
   pipelines:
+    env_file: ./.env
     image: ghcr.io/open-webui/pipelines:main
     container_name: pipelines
     volumes:

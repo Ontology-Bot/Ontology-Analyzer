@@ -1,0 +1,3 @@
+# Global environment variables are automatically loaded from .env file
+include:
+  - ./openwebui-pipelines/docker-compose.yml

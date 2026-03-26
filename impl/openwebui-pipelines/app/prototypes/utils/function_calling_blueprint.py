@@ -71,7 +71,7 @@ class Pipeline:
                 "LLM_BASE_URL": os.getenv(
                     "LLM_BASE_URL", "https://api.openai.com/v1"
                 ),
-                "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", "YOUR_OPENAI_API_KEY"),
+                "LLM_API_KEY": os.getenv("LLM_API_KEY", "YOUR_API_KEY"),
                 "TASK_MODEL": os.getenv("LLM_DEFAULT_MODEL", "gpt-3.5-turbo"),
                 "TEMPLATE": """Use the following context as your learned knowledge, inside <context></context> XML tags.
 <context>

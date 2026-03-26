@@ -90,7 +90,7 @@ USE DICTIONARY AS PRIMARY KNOWLEDGE, DO NOT INVENT KNOWLEDGE OUTSIDE OF CONTEXT
 
     def _update(self) -> None:
         if (self.valves.LLM_BASE_URL == ""):
-            logger.error("Empty SPARQL_BASE_URL and LLM_BASE_URL")
+            logger.error("Empty LLM_BASE_URL")
             return
         self.client = build_llm_adapter(
             provider=self.valves.LLM_PROVIDER,
@@ -126,8 +126,8 @@ USE DICTIONARY AS PRIMARY KNOWLEDGE, DO NOT INVENT KNOWLEDGE OUTSIDE OF CONTEXT
         # Get the tools specs
         tools_specs = get_tools_specs(self.tools)
 
-        logging.info("---- tool specs -----")
-        logging.info(tools_specs)
+        # logging.info("---- tool specs -----")
+        # logging.info(tools_specs)
 
         prompt = self.prompt.format(json.dumps(tools_specs, indent=2))
         content = "History:\n" + "\n".join(
@@ -195,14 +195,13 @@ USE DICTIONARY AS PRIMARY KNOWLEDGE, DO NOT INVENT KNOWLEDGE OUTSIDE OF CONTEXT
             ]
 
             answer = self.client.chat_json(self.valves.TASK_MODEL, messages)
-
             # Parse the function response
             if answer != "":
-                result = json.loads(content)
-                print(result)
+                result = json.loads(answer)
+                logger.info(result)
                 return result
 
         except Exception as e:
-            print(f"Error: {e}")
+            logger.exception(f"Error: {e}")
 
         return {}

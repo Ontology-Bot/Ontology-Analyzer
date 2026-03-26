@@ -3,6 +3,7 @@
 ## Utils
 Before implementing your own logic, look at `prototypes/utils` folder. It may have what you need!
 - `sparql/common.py` along some small stuff provides `run_query` - generator, which does batching and preprocessing, spitting out processed dictionaries. Use `for row in run_query(...):`
+- If you use LLMs in your prototype, use `build_llm_adapter` factory (`llm_adapter.py`) - it provides universal access to ollama and openai APIs. Use 3 env vars for this: `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_API_KEY`
 - (add your here)
 
 ## Available prototypes

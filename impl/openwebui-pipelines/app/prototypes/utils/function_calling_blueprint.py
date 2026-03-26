@@ -151,13 +151,17 @@ USE DICTIONARY AS PRIMARY KNOWLEDGE, DO NOT INVENT KNOWLEDGE OUTSIDE OF CONTEXT
         if "name" not in result:
             return messages
 
-        function = getattr(self.tools, result["name"])
+        function = getattr(self.tools, result["name"], None)
         logging.info(f"function: {function}")
+
         function_result = None
-        try:
-            function_result = function(**result["parameters"])
-        except Exception as e:
-            logging.error(e)
+        if not function:
+            logging.warning(f"LLM tried to use nonexisting function {result['name']}")
+        else:
+            try:
+                function_result = function(**result["parameters"])
+            except Exception as e:
+                logging.exception(e)
 
         logging.info(f"function result: {function_result}")
 

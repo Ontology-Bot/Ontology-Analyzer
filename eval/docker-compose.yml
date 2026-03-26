@@ -1,0 +1,3 @@
+# Global environment variables are automatically loaded from .env file
+include:
+  - ./evaluation-deepeval/docker-compose.yml

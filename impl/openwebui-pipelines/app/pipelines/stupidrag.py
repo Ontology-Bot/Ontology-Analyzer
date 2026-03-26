@@ -33,6 +33,7 @@ class Pipeline:
         LLM_PROVIDER: str
         LLM_BASE_URL: str
         LLM_API_KEY: str
+        LLM_DEFAULT_MODEL: str
         SPARQL_BASE_URL: str
         
     def __init__(self):
@@ -46,6 +47,7 @@ class Pipeline:
 
         self.valves = self.Valves(
             **{ # type: ignore (we do not initialize top_k here)
+                "LLM_DEFAULT_MODEL": os.getenv("LLM_DEFAULT_MODEL", ""),
                 "LLM_PROVIDER": os.getenv("LLM_PROVIDER", ""),
                 "LLM_BASE_URL": os.getenv("LLM_BASE_URL", ""),
                 "LLM_API_KEY": os.getenv("LLM_API_KEY", ""),
@@ -61,19 +63,11 @@ class Pipeline:
             if self.client is None:
                 raise ValueError("Oops! Forgot to initialize valves!")
             
-            model_data = self.client.list_models()
-            
-            # model_data is {'models': [...]}
-            return [
-                {
-                    "id": m['name'],
-                    "name": m['name']
-                }
-                for m in model_data
-            ]
+            return self.client.list_models()
         except Exception as e:
             logger.error(f"Discovery error: {e}")
-            return [{"id": "llama3", "name": "StupidRAG (Fallback model)"}]
+            fallback = self.valves.LLM_DEFAULT_MODEL or "fallback-model"
+            return [{"id": fallback, "name": "StupidRAG (Fallback model)"}]
         
     
     def _update(self) -> None:
@@ -117,7 +111,9 @@ class Pipeline:
             raise ValueError("Oops! Forgot to initialize valves!")
 
         # 0. get model id
-        model_id = body.get("model", "").split(".", 1)[-1] # Strip pipe prefix
+        model_id = body.get("model", "").split(".", 1)[-1] or self.valves.LLM_DEFAULT_MODEL # Strip pipe prefix
+        if not model_id:
+            raise ValueError("No model selected and LLM_DEFAULT_MODEL is empty")
 
         logger.info(f"Inlet:{__name__} model {model_id}")
         logger.info(f"Inlet function called with body: {body}")

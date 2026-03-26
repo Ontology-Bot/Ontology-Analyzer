@@ -1,6 +1,7 @@
 from app.evaluator import run_evaluation
-from app.clients import client
+from app.clients import get_subject_client
 from app.testcase_loader import load_testcases, get_testcases
+from openai import OpenAI
 
 import os
 
@@ -13,7 +14,7 @@ def main():
     print("Hello from evaluation-deepeval!")
 
     print("Models")
-    print(client.models.list())
+    print(get_subject_client().models.list())
 
     load_testcases()
     print(get_testcases())

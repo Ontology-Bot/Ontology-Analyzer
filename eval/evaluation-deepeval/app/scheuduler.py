@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 from .evaluator import run_evaluation
+from .testcase_loader import get_testcases
 
 class Scheduler:
     def __init__(self, data_dir: str) -> None:
@@ -36,19 +37,15 @@ class Scheduler:
             self.state["error"] = None
             self.state["progress"]["tests_ran"] = 0
             self.state["progress"]["tests_generated"] = 0
-            self.state["progress"]["total"] = 0
+            self.state["progress"]["total"] = len(models) * len(get_testcases())
  
             all_results = {}
             for model in models:
-                self.state["progress"]["current_model"] = model
+                tracker = self.state["progress"]
+                tracker["current_model"] = model
                 logger.info(f"running evaluation for model '{model}'")
-                result = run_evaluation(judge, model, metrics)
+                result = run_evaluation(judge, model, metrics, tracker)
                 all_results[model] = result.model_dump()
- 
-                # Try to update progress counters if result exposes them
-                if isinstance(result, dict):
-                    ran = result.get("tests_ran", result.get("total_cases", 0))
-                    self.state["progress"]["tests_ran"] += ran
  
             # Save to timestamped file
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

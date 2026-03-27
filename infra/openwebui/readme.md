@@ -20,6 +20,11 @@ By default, it uses uni API for ollama
 3. Go to http://localhost:3000/ > Bottom left corner, User > Admin Panel > Settings > Connections > Ollama API (cog icon): add your API key there
 4. Now you can use their models through your instance of OpenWebUI!
 
+### How to use openwebui as proxy
+1. You will have to enable API keys first - follow this guide: `https://docs.openwebui.com/reference/monitoring/#authentication-setup-for-api-key-`. Do not forget that you are administrator
+2. After that follow a similar process - create an API key for yourself
+3. Access at `https://<open-webui address>/api`
+
 ### Simple Pipes
 1. We create pipe to inject our own behavior for the chat. A pipe is a simple wrapper for some remote call (to our prototype)
 2. it has to be enabled first, Go to http://localhost:3000/ > Bottom left corner, User > Admin Panel > Settings >  

@@ -1,0 +1,1212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DeepEval Runner</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0d0f12;
+    --surface: #141720;
+    --surface2: #1c2030;
+    --surface3: #222840;
+    --border: #252a38;
+    --border-bright: #353d54;
+    --text: #c8d0e0;
+    --text-dim: #5a6278;
+    --text-bright: #eef2ff;
+    --accent: #4f8ef7;
+    --accent-dim: #1e3a72;
+    --accent-hover: #6ba3ff;
+    --green: #3ecf8e;
+    --green-dim: #0f3d2a;
+    --red: #f7614f;
+    --red-dim: #3d1810;
+    --yellow: #f5c842;
+    --yellow-dim: #3d3010;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+    --radius: 7px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    min-height: 100vh;
+  }
+
+  /* ─── Scrollbar ─── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+
+  /* ─── Layout ─── */
+  #app { display: flex; flex-direction: column; min-height: 100vh; }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--text-bright);
+    letter-spacing: -0.3px;
+  }
+  .logo span { color: var(--accent); }
+
+  .header-sep { flex: 1; }
+
+  .page { display: none; flex: 1; padding: 28px 32px; max-width: 960px; margin: 0 auto; width: 100%; }
+  .page.active { display: block; }
+
+  /* ─── 3-column layout ─── */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    grid-template-rows: auto auto;
+    gap: 18px;
+    align-items: start;
+  }
+
+  .col-left { display: flex; flex-direction: column; gap: 18px; grid-row: 1 / 3; }
+  .col-right { display: flex; flex-direction: column; gap: 18px; }
+
+  /* ─── Cards ─── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .card-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .card-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    flex: 1;
+  }
+
+  .card-body { padding: 20px; }
+
+  /* ─── Section inside card ─── */
+  .section {
+    padding-bottom: 18px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section:last-child { padding-bottom: 0; margin-bottom: 0; border-bottom: none; }
+
+  .section-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  /* ─── Fields ─── */
+  .field { margin-bottom: 12px; }
+  .field:last-child { margin-bottom: 0; }
+
+  label.field-label {
+    display: block;
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    margin-bottom: 5px;
+    letter-spacing: 0.4px;
+  }
+
+  input[type=text], input[type=password] {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-bright);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 8px 10px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  input[type=text]:focus, input[type=password]:focus { border-color: var(--accent); }
+  input[type=text]::placeholder, input[type=password]::placeholder { color: var(--text-dim); opacity: 0.6; }
+
+  /* password show/hide */
+  .input-row { display: flex; gap: 6px; align-items: stretch; }
+  .input-row input { flex: 1; }
+  .icon-btn {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 0 10px;
+    font-size: 13px;
+    transition: border-color 0.15s, color 0.15s;
+    line-height: 1;
+  }
+  .icon-btn:hover { border-color: var(--border-bright); color: var(--text); }
+
+  /* ─── Tags input ─── */
+  .tags-container {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 5px 7px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    align-items: center;
+    min-height: 38px;
+    cursor: text;
+    transition: border-color 0.15s;
+  }
+  .tags-container:focus-within { border-color: var(--accent); }
+  .tag {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: 1px solid rgba(79,142,247,0.35);
+    border-radius: 4px;
+    padding: 2px 7px 2px 9px;
+    font-family: var(--mono);
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .tag-remove { cursor: pointer; opacity: 0.55; font-size: 13px; transition: opacity 0.1s; }
+  .tag-remove:hover { opacity: 1; }
+  .tag-input {
+    background: none; border: none; outline: none;
+    color: var(--text-bright); font-family: var(--mono); font-size: 12px;
+    min-width: 100px; flex: 1;
+  }
+
+  /* ─── Metrics checkbox list ─── */
+  .metrics-list {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    max-height: 160px;
+    overflow-y: auto;
+  }
+  .metric-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .metric-item:hover { background: var(--surface2); }
+  .metric-item input[type=checkbox] {
+    accent-color: var(--accent);
+    cursor: pointer;
+    width: 13px; height: 13px;
+  }
+  .metric-item span { font-family: var(--mono); font-size: 12px; color: var(--text); }
+
+  /* ─── Buttons ─── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-primary:disabled { background: var(--accent-dim); color: #4a5878; cursor: not-allowed; }
+  .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+  .btn-ghost:hover:not(:disabled) { border-color: var(--border-bright); color: var(--text); }
+  .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-danger { background: transparent; color: var(--red); border: 1px solid var(--red-dim); }
+  .btn-danger:hover:not(:disabled) { background: var(--red-dim); }
+  .btn-sm { padding: 5px 11px; font-size: 11px; }
+  .btn-full { width: 100%; }
+  .btn-run {
+    background: var(--accent);
+    color: #fff;
+    padding: 11px 24px;
+    font-size: 13px;
+    width: 100%;
+    border-radius: 6px;
+  }
+  .btn-run:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-run:disabled { background: var(--accent-dim); color: #4a5878; cursor: not-allowed; }
+
+  /* ─── Inline status ring ─── */
+  .status-ring {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 1.5px solid var(--border-bright); flex-shrink: 0;
+    transition: border-color 0.2s;
+  }
+  .status-ring .dot-inner {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-dim); transition: background 0.2s;
+  }
+  .status-ring.ok { border-color: var(--green); }
+  .status-ring.ok .dot-inner { background: var(--green); }
+  .status-ring.fail { border-color: var(--red); }
+  .status-ring.fail .dot-inner { background: var(--red); }
+  .status-ring.checking { border-color: var(--yellow); }
+  .status-ring.checking .dot-inner { background: var(--yellow); animation: pulse 1s infinite; }
+  .status-ring.unknown { border-color: var(--border-bright); }
+  .status-ring.unknown .dot-inner { background: var(--text-dim); }
+
+  /* ─── Upload area ─── */
+  .upload-drop {
+    border: 1px dashed var(--border-bright);
+    border-radius: 5px;
+    padding: 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s;
+    position: relative;
+  }
+  .upload-drop:hover, .upload-drop.drag-over { border-color: var(--accent); background: var(--accent-dim); }
+  .upload-drop input[type=file] { display: none; }
+  .upload-drop-icon { font-size: 20px; margin-bottom: 6px; }
+  .upload-drop-label { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+  .upload-drop-label b { color: var(--accent); font-weight: 500; }
+  .upload-hint { font-family: var(--mono); font-size: 11px; margin-top: 8px; }
+
+  /* ─── Run Status ─── */
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-family: var(--mono);
+    font-size: 12px;
+    border: 1px solid;
+  }
+  .status-pill.idle { color: var(--text-dim); border-color: var(--border-bright); background: transparent; }
+  .status-pill.running { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-dim); }
+  .status-pill.done { color: var(--green); border-color: var(--green); background: var(--green-dim); }
+  .status-pill.error { color: var(--red); border-color: var(--red); background: var(--red-dim); }
+
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: currentColor;
+  }
+  .status-dot.pulse { animation: pulse 1s infinite; }
+
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+  .run-detail {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 8px;
+    min-height: 16px;
+  }
+
+  .progress-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .prog-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+  }
+  .prog-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 5px; }
+  .prog-value { font-family: var(--mono); font-size: 20px; font-weight: 600; color: var(--text-bright); }
+  .prog-value.accent { color: var(--accent); }
+  .prog-value.green { color: var(--green); }
+
+  /* ─── Results list ─── */
+  .result-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    background: var(--surface2);
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .result-row:hover { border-color: var(--accent); background: var(--surface); }
+
+  .result-ts { font-family: var(--mono); font-size: 11px; color: var(--accent); white-space: nowrap; min-width: 130px; padding-top: 2px; }
+
+  .result-meta { flex: 1; }
+  .result-judge { font-size: 11px; font-family: var(--mono); color: var(--text-dim); margin-bottom: 6px; }
+
+  .result-stats { display: flex; flex-direction: column; gap: 4px; }
+  .model-stat { display: flex; align-items: center; font-family: var(--mono); font-size: 11px; gap: 7px; flex-wrap: wrap; }
+  .ms-name { color: var(--text-dim); }
+
+  .pass-badge {
+    padding: 1px 7px;
+    border-radius: 4px;
+    border: 1px solid;
+    font-size: 11px;
+    font-family: var(--mono);
+  }
+  .pass-badge.good { color: var(--green); border-color: var(--green); background: var(--green-dim); }
+  .pass-badge.mid { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-dim); }
+  .pass-badge.bad { color: var(--red); border-color: var(--red); background: var(--red-dim); }
+
+  .model-chip {
+    background: var(--surface);
+    border: 1px solid var(--border-bright);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    padding: 1px 6px;
+  }
+  .result-arrow { color: var(--text-dim); font-size: 16px; padding-top: 2px; }
+
+  .empty-state {
+    text-align: center;
+    padding: 36px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.5px;
+  }
+
+  /* ─── Hint / feedback text ─── */
+  .hint {
+    font-family: var(--mono);
+    font-size: 11px;
+    margin-top: 6px;
+    min-height: 16px;
+  }
+  .hint.ok { color: var(--green); }
+  .hint.err { color: var(--red); }
+  .hint.info { color: var(--text-dim); }
+
+  /* ─── Security note ─── */
+  .security-note {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 7px 10px;
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+  .security-note b { color: var(--yellow); font-weight: 500; }
+
+  /* ─── Detail page ─── */
+  .detail-header { margin-bottom: 20px; }
+  .detail-header h2 { font-family: var(--mono); font-size: 15px; color: var(--text-bright); margin-bottom: 5px; }
+  .detail-header .meta { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+
+  .tab-bar {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0;
+  }
+  .tab {
+    font-family: var(--mono); font-size: 12px;
+    padding: 7px 14px;
+    cursor: pointer;
+    color: var(--text-dim);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.12s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ─── JSON viewer ─── */
+  .json-viewer {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px;
+    overflow: auto;
+    max-height: 60vh;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+  .json-key { color: #6fb3f7; }
+  .json-string { color: var(--green); }
+  .json-number { color: #f5a742; }
+  .json-bool { color: #c792ea; }
+  .json-null { color: var(--text-dim); }
+  .json-toggle { cursor: pointer; user-select: none; }
+  .json-toggle:hover { opacity: 0.7; }
+  .json-collapsed-hint { color: var(--text-dim); font-style: italic; }
+  .json-indent { display: block; padding-left: 18px; }
+  .json-line { display: flex; }
+  .collapse-icon { color: var(--text-dim); margin-right: 3px; font-size: 9px; }
+
+  /* ─── Metric tags in results ─── */
+  .metrics-pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+  .metric-pill {
+    font-family: var(--mono); font-size: 10px;
+    padding: 1px 6px; border-radius: 3px;
+    background: var(--surface3); border: 1px solid var(--border-bright);
+    color: var(--text-dim);
+  }
+
+  /* row of btns */
+  .btn-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  /* detail action bar */
+  .detail-actions { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; }
+
+  /* ─── Responsive ─── */
+  @media (max-width: 700px) {
+    .main-grid { grid-template-columns: 1fr; }
+    .col-left { grid-row: auto; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="logo">deep<span>eval</span> / runner</div>
+    <div class="header-sep"></div>
+    <button class="btn btn-ghost btn-sm" id="refresh-results-btn">↻ refresh results</button>
+  </header>
+
+  <!-- ── MAIN PAGE ── -->
+  <div class="page active" id="page-main">
+    <div class="main-grid">
+
+      <!-- ── LEFT COLUMN: Configuration ── -->
+      <div class="col-left">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Configuration</div>
+          </div>
+          <div class="card-body">
+
+            <!-- Eval Config -->
+            <div class="section">
+              <div class="section-label">Evaluation Config</div>
+              <div class="field">
+                <label class="field-label">Judge Model</label>
+                <input type="text" id="judge-input" placeholder="e.g. gpt-4o" />
+              </div>
+              <div class="field">
+                <label class="field-label">Subject Model(s) <span style="opacity:.5">(Enter/comma)</span></label>
+                <div class="tags-container" id="tags-container">
+                  <input class="tag-input" id="model-tag-input" placeholder="e.g. gpt-4o-mini" />
+                </div>
+              </div>
+              <div class="field">
+                <label class="field-label">Metrics</label>
+                <div class="metrics-list" id="metrics-list">
+                  <div class="metric-item"><span style="color:var(--text-dim);font-family:var(--mono);font-size:11px;">Loading metrics…</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- API Settings -->
+            <div class="section">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                <span class="section-label" style="margin-bottom:0;">API Settings</span>
+                <div style="flex:1;"></div>
+                <button class="icon-btn" id="save-all-btn" title="Save all API settings" style="padding:3px 8px;font-size:13px;">💾</button>
+                <button class="icon-btn" id="refresh-conn-btn" title="Check connectivity" style="padding:3px 8px;font-size:13px;">↻</button>
+              </div>
+              <div class="security-note">
+                <b>⚠</b> Keys stored in <code>localStorage</code> (browser only). Avoid on shared machines.
+              </div>
+
+              <!-- Subject -->
+              <div style="margin-bottom:14px;">
+                <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;">
+                  <span style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:0.8px;text-transform:uppercase;">Subject</span>
+                  <span class="status-ring unknown" id="conn-subject" title="Subject API status"><span class="dot-inner"></span></span>
+                </div>
+                <div class="field">
+                  <label class="field-label">Base URL</label>
+                  <input type="text" id="subject-url" placeholder="https://api.openai.com/v1" />
+                </div>
+                <div class="field">
+                  <label class="field-label">API Key</label>
+                  <div class="input-row">
+                    <input type="password" id="subject-key" placeholder="sk-..." />
+                    <button class="icon-btn" data-target="subject-key" title="Show/hide">👁</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Judge -->
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;">
+                  <span style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:0.8px;text-transform:uppercase;">Judge</span>
+                  <span class="status-ring unknown" id="conn-judge" title="Judge API status"><span class="dot-inner"></span></span>
+                </div>
+                <div class="field">
+                  <label class="field-label">Base URL</label>
+                  <input type="text" id="judge-url" placeholder="https://api.openai.com/v1" />
+                </div>
+                <div class="field">
+                  <label class="field-label">API Key</label>
+                  <div class="input-row">
+                    <input type="password" id="judge-key" placeholder="sk-..." />
+                    <button class="icon-btn" data-target="judge-key" title="Show/hide">👁</button>
+                  </div>
+                </div>
+              </div>
+              <div class="hint info" id="save-api-hint" style="margin-top:6px;"></div>
+            </div>
+
+            <!-- Upload Testcases -->
+            <div class="section">
+              <div class="section-label">Testcases</div>
+              <div class="upload-drop" id="upload-drop">
+                <input type="file" id="testcase-file" accept=".json" />
+                <div class="upload-drop-icon">📂</div>
+                <div class="upload-drop-label">Drop JSON or <b>click to browse</b></div>
+              </div>
+              <div class="hint info" id="upload-hint" style="margin-top:8px;"></div>
+              <div style="margin-top:8px;">
+                <button class="btn btn-ghost btn-sm" id="upload-btn">↑ Upload</button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ── RIGHT COLUMN ── -->
+      <div class="col-right">
+
+        <!-- Run Panel -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Run Evaluation</div>
+          </div>
+          <div class="card-body">
+            <button class="btn btn-run" id="run-btn">▶ Run Evaluation</button>
+            <div class="hint err" id="run-hint"></div>
+            <div style="margin-top:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+              <span class="status-pill idle" id="status-pill">
+                <span class="status-dot" id="status-dot"></span>
+                <span id="status-label">Idle</span>
+              </span>
+              <span class="run-detail" id="status-detail"></span>
+            </div>
+            <div class="progress-grid" id="progress-grid" style="display:none;">
+              <div class="prog-item">
+                <div class="prog-label">Tests Generated</div>
+                <div class="prog-value accent" id="prog-generated">0</div>
+              </div>
+              <div class="prog-item">
+                <div class="prog-label">Tests Ran</div>
+                <div class="prog-value" id="prog-ran">0</div>
+              </div>
+              <div class="prog-item">
+                <div class="prog-label">Completed</div>
+                <div class="prog-value green" id="prog-total">0</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Results -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Results</div>
+            <button class="btn btn-danger btn-sm" id="clear-results-btn" title="Delete all results">✕ clear all</button>
+          </div>
+          <div class="card-body" style="padding:12px;">
+            <div id="results-list"><div class="empty-state">No results yet</div></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── DETAIL PAGE ── -->
+  <div class="page" id="page-detail">
+    <div class="detail-actions">
+      <button class="btn btn-ghost" id="back-btn">← Back</button>
+      <div style="flex:1;"></div>
+      <button class="btn btn-ghost btn-sm" id="download-btn">↓ Download JSON</button>
+    </div>
+    <div class="detail-header">
+      <h2 id="detail-title">Result</h2>
+      <div class="meta" id="detail-meta"></div>
+    </div>
+    <div class="tab-bar" id="detail-tabs"></div>
+    <div class="json-viewer" id="json-viewer"></div>
+  </div>
+
+</div>
+
+<script>
+// ─── Storage keys ───────────────────────────────────────────────────────────
+const LS = {
+  JUDGE_MODEL: 'deval_judge',
+  MODELS: 'deval_models',
+  METRICS: 'deval_metrics',
+  SUBJECT_URL: 'deval_subject_url',
+  SUBJECT_KEY: 'deval_subject_key',
+  JUDGE_URL: 'deval_judge_url',
+  JUDGE_KEY: 'deval_judge_key',
+};
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let models = [];
+let selectedMetrics = [];
+let availableMetrics = [];
+let pollTimer = null;
+let currentDetailFilename = null;
+let currentDetailData = null;
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  restoreCache();
+  loadMetrics();
+  loadResults();
+  pollStatus();
+
+  // Run btn
+  document.getElementById('run-btn').addEventListener('click', runEval);
+
+  // Back / refresh
+  document.getElementById('back-btn').addEventListener('click', showMain);
+  document.getElementById('refresh-results-btn').addEventListener('click', loadResults);
+
+  // Judge model cache
+  document.getElementById('judge-input').addEventListener('input', () =>
+    localStorage.setItem(LS.JUDGE_MODEL, document.getElementById('judge-input').value));
+
+  // Model tags
+  const tagInput = document.getElementById('model-tag-input');
+  tagInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      addTag(tagInput.value.trim().replace(/,$/, ''));
+      tagInput.value = '';
+    } else if (e.key === 'Backspace' && tagInput.value === '' && models.length) {
+      removeTag(models.length - 1);
+    }
+  });
+  document.getElementById('tags-container').addEventListener('click', () => tagInput.focus());
+
+  // Save API config (unified)
+  document.getElementById('save-all-btn').addEventListener('click', saveAllApiConfig);
+
+  // Connectivity
+  document.getElementById('refresh-conn-btn').addEventListener('click', checkConnectivity);
+
+  // Upload
+  setupUpload();
+
+  // Show/hide passwords
+  document.querySelectorAll('.icon-btn[data-target]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const inp = document.getElementById(btn.dataset.target);
+      inp.type = inp.type === 'password' ? 'text' : 'password';
+      btn.textContent = inp.type === 'password' ? '👁' : '🙈';
+    });
+  });
+
+  // Download
+  document.getElementById('download-btn').addEventListener('click', downloadCurrentResult);
+
+  // Clear results
+  document.getElementById('clear-results-btn').addEventListener('click', async () => {
+    if (!confirm('Delete ALL results? This cannot be undone.')) return;
+    await fetch('/results/clear', { method: 'POST' });
+    loadResults();
+  });
+
+  // Load initial connectivity
+  checkConnectivity();
+});
+
+// ─── Cache restore ────────────────────────────────────────────────────────────
+async function restoreCache() {
+  const j = localStorage.getItem(LS.JUDGE_MODEL);
+  if (j) document.getElementById('judge-input').value = j;
+  try { const m = JSON.parse(localStorage.getItem(LS.MODELS) || '[]'); m.forEach(addTag); } catch(e) {}
+
+  // Preload API fields: server is source of truth, fallback to localStorage
+  try {
+    const r = await fetch('/config/');
+    if (r.ok) {
+      const cfg = await r.json();
+      setVal('subject-url', cfg.OPENAI_SUBJECT_BASE_URL);
+      setVal('subject-key', cfg.OPENAI_SUBJECT_API_KEY);
+      setVal('judge-url', cfg.OPENAI_JUDGE_BASE_URL);
+      setVal('judge-key', cfg.OPENAI_JUDGE_API_KEY);
+      // Also persist to localStorage as fallback
+      if (cfg.OPENAI_SUBJECT_BASE_URL) localStorage.setItem(LS.SUBJECT_URL, cfg.OPENAI_SUBJECT_BASE_URL);
+      if (cfg.OPENAI_SUBJECT_API_KEY) localStorage.setItem(LS.SUBJECT_KEY, cfg.OPENAI_SUBJECT_API_KEY);
+      if (cfg.OPENAI_JUDGE_BASE_URL) localStorage.setItem(LS.JUDGE_URL, cfg.OPENAI_JUDGE_BASE_URL);
+      if (cfg.OPENAI_JUDGE_API_KEY) localStorage.setItem(LS.JUDGE_KEY, cfg.OPENAI_JUDGE_API_KEY);
+      return;
+    }
+  } catch(e) {}
+  // Fallback to localStorage
+  setVal('subject-url', localStorage.getItem(LS.SUBJECT_URL));
+  setVal('subject-key', localStorage.getItem(LS.SUBJECT_KEY));
+  setVal('judge-url', localStorage.getItem(LS.JUDGE_URL));
+  setVal('judge-key', localStorage.getItem(LS.JUDGE_KEY));
+}
+function setVal(id, val) { if (val) document.getElementById(id).value = val; }
+
+// ─── API Config save (unified) ────────────────────────────────────────────────
+async function saveAllApiConfig() {
+  const body = {
+    OPENAI_SUBJECT_BASE_URL: document.getElementById('subject-url').value.trim(),
+    OPENAI_SUBJECT_API_KEY:  document.getElementById('subject-key').value.trim(),
+    OPENAI_JUDGE_BASE_URL:   document.getElementById('judge-url').value.trim(),
+    OPENAI_JUDGE_API_KEY:    document.getElementById('judge-key').value.trim(),
+  };
+  // Persist locally
+  localStorage.setItem(LS.SUBJECT_URL, body.OPENAI_SUBJECT_BASE_URL);
+  localStorage.setItem(LS.SUBJECT_KEY, body.OPENAI_SUBJECT_API_KEY);
+  localStorage.setItem(LS.JUDGE_URL,   body.OPENAI_JUDGE_BASE_URL);
+  localStorage.setItem(LS.JUDGE_KEY,   body.OPENAI_JUDGE_API_KEY);
+  try {
+    const r = await fetch('/config/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    showHint('save-api-hint', r.ok ? 'Saved ✓' : 'Saved locally (server error)', r.ok ? 'ok' : 'info');
+    if (r.ok) checkConnectivity();
+  } catch(e) {
+    showHint('save-api-hint', 'Saved locally (server unreachable)', 'info');
+  }
+}
+
+function showHint(id, msg, type = 'info') {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = msg;
+  el.className = `hint ${type}`;
+  setTimeout(() => { el.textContent = ''; }, 3000);
+}
+
+// ─── Connectivity ─────────────────────────────────────────────────────────────
+async function checkConnectivity() {
+  setRing('conn-subject', 'checking');
+  setRing('conn-judge', 'checking');
+  try {
+    const r = await fetch('/config/status/');
+    const s = await r.json();
+    setRing('conn-subject', s.subject ? 'ok' : 'fail');
+    setRing('conn-judge',   s.judge   ? 'ok' : 'fail');
+  } catch(e) {
+    setRing('conn-subject', 'fail');
+    setRing('conn-judge', 'fail');
+  }
+}
+
+function setRing(id, cls) {
+  const el = document.getElementById(id);
+  el.className = `status-ring ${cls}`;
+}
+
+// ─── Upload ───────────────────────────────────────────────────────────────────
+function setupUpload() {
+  const drop = document.getElementById('upload-drop');
+  const fileInput = document.getElementById('testcase-file');
+
+  drop.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) updateDropLabel(fileInput.files[0].name);
+  });
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag-over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('drag-over'));
+  drop.addEventListener('drop', e => {
+    e.preventDefault(); drop.classList.remove('drag-over');
+    if (e.dataTransfer.files.length) {
+      const dt = new DataTransfer(); dt.items.add(e.dataTransfer.files[0]);
+      fileInput.files = dt.files;
+      updateDropLabel(e.dataTransfer.files[0].name);
+    }
+  });
+
+  document.getElementById('upload-btn').addEventListener('click', doUpload);
+}
+
+function updateDropLabel(name) {
+  document.querySelector('.upload-drop-label').innerHTML = `<b>${esc(name)}</b>`;
+}
+
+async function doUpload() {
+  const fileInput = document.getElementById('testcase-file');
+  if (!fileInput.files.length) { showHint('upload-hint', 'Select a file first', 'err'); return; }
+  const btn = document.getElementById('upload-btn');
+  btn.disabled = true;
+  showHint('upload-hint', 'Uploading…', 'info');
+  const fd = new FormData(); fd.append('file', fileInput.files[0]);
+  try {
+    const r = await fetch('/upload-testcases/', { method: 'POST', body: fd });
+    if (!r.ok) { const e = await r.json(); showHint('upload-hint', 'Error: ' + (e.detail || r.statusText), 'err'); return; }
+    const d = await r.json();
+    showHint('upload-hint', `✓ ${d.count} testcase${d.count !== 1 ? 's' : ''} uploaded`, 'ok');
+    document.querySelector('.upload-drop-label').innerHTML = 'Drop JSON or <b>click to browse</b>';
+    fileInput.value = '';
+  } catch(e) {
+    showHint('upload-hint', 'Upload failed: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ─── Metrics ──────────────────────────────────────────────────────────────────
+async function loadMetrics() {
+  try {
+    const r = await fetch('/metrics/');
+    availableMetrics = await r.json();
+    renderMetricsList();
+    // restore cached selections
+    try {
+      const cached = JSON.parse(localStorage.getItem(LS.METRICS) || '[]');
+      selectedMetrics = cached.filter(m => availableMetrics.includes(m));
+      renderMetricsList();
+    } catch(e) {}
+  } catch(e) {
+    document.getElementById('metrics-list').innerHTML =
+      '<div class="metric-item"><span style="color:var(--red);font-family:var(--mono);font-size:11px;">Failed to load metrics</span></div>';
+  }
+}
+
+function renderMetricsList() {
+  const el = document.getElementById('metrics-list');
+  el.innerHTML = '';
+  availableMetrics.forEach(m => {
+    const item = document.createElement('label');
+    item.className = 'metric-item';
+    item.innerHTML = `<input type="checkbox" value="${esc(m)}" ${selectedMetrics.includes(m) ? 'checked' : ''}><span>${esc(m)}</span>`;
+    item.querySelector('input').addEventListener('change', e => {
+      if (e.target.checked) { if (!selectedMetrics.includes(m)) selectedMetrics.push(m); }
+      else selectedMetrics = selectedMetrics.filter(x => x !== m);
+      localStorage.setItem(LS.METRICS, JSON.stringify(selectedMetrics));
+    });
+    el.appendChild(item);
+  });
+}
+
+// ─── Tags ─────────────────────────────────────────────────────────────────────
+function addTag(val) {
+  if (!val || models.includes(val)) return;
+  models.push(val);
+  renderTags();
+  localStorage.setItem(LS.MODELS, JSON.stringify(models));
+}
+function removeTag(i) {
+  models.splice(i, 1);
+  renderTags();
+  localStorage.setItem(LS.MODELS, JSON.stringify(models));
+}
+function renderTags() {
+  const container = document.getElementById('tags-container');
+  const input = document.getElementById('model-tag-input');
+  container.querySelectorAll('.tag').forEach(t => t.remove());
+  models.forEach((m, i) => {
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.innerHTML = `${esc(m)}<span class="tag-remove" data-i="${i}">×</span>`;
+    tag.querySelector('.tag-remove').addEventListener('click', () => removeTag(i));
+    container.insertBefore(tag, input);
+  });
+}
+
+// ─── Run Eval ─────────────────────────────────────────────────────────────────
+async function runEval() {
+  const judge = document.getElementById('judge-input').value.trim();
+  const hint = document.getElementById('run-hint');
+  hint.textContent = '';
+  if (!judge) { hint.textContent = 'Judge model is required'; return; }
+  if (!models.length) { hint.textContent = 'Add at least one subject model'; return; }
+
+  const btn = document.getElementById('run-btn');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/evaluate/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ judge, models, metrics: selectedMetrics })
+    });
+    if (!r.ok) {
+      const e = await r.json();
+      hint.textContent = e.detail || 'Error starting run';
+      btn.disabled = false; return;
+    }
+    startPolling();
+  } catch(e) {
+    hint.textContent = 'Request failed: ' + e.message;
+    btn.disabled = false;
+  }
+}
+
+// ─── Status polling ───────────────────────────────────────────────────────────
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(pollStatus, 1500);
+}
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+async function pollStatus() {
+  try {
+    const r = await fetch('/status/');
+    const s = await r.json();
+    updateStatusUI(s);
+    if (s.status === 'running') startPolling();
+    else {
+      stopPolling();
+      document.getElementById('run-btn').disabled = false;
+      if (s.status === 'done') loadResults();
+    }
+  } catch(e) {}
+}
+
+function updateStatusUI(s) {
+  const pill = document.getElementById('status-pill');
+  const dot = document.getElementById('status-dot');
+  const label = document.getElementById('status-label');
+  const detail = document.getElementById('status-detail');
+  const grid = document.getElementById('progress-grid');
+
+  const map = { idle: 'Idle', running: 'Running…', done: 'Completed', error: 'Error' };
+  const classes = { idle: 'idle', running: 'running', done: 'done', error: 'error' };
+  pill.className = `status-pill ${classes[s.status] || 'idle'}`;
+  dot.className = `status-dot${s.status === 'running' ? ' pulse' : ''}`;
+  label.textContent = map[s.status] || s.status;
+
+  if (s.status === 'running') {
+    const p = s.progress || {};
+    detail.textContent = p.current_model ? `model: ${p.current_model}` : '';
+    grid.style.display = 'grid';
+    const tg = p.tests_generated ?? 0;
+    const tr = p.tests_ran ?? 0;
+    document.getElementById('prog-generated').textContent = tg;
+    document.getElementById('prog-ran').textContent = tr;
+    document.getElementById('prog-total').textContent = `${p.total ? Math.round((tr+tg) / (2*p.total)*100) : 0}%`;
+  } else {
+    detail.textContent = s.status === 'error' ? (s.error || '') : (s.judge ? `judge: ${s.judge}` : '');
+    grid.style.display = 'none';
+  }
+}
+
+// ─── Results list ─────────────────────────────────────────────────────────────
+async function loadResults() {
+  try {
+    const r = await fetch('/results/');
+    renderResultsList(await r.json());
+  } catch(e) {}
+}
+
+function renderResultsList(list) {
+  const el = document.getElementById('results-list');
+  if (!list.length) { el.innerHTML = '<div class="empty-state">No results yet</div>'; return; }
+  el.innerHTML = '';
+  list.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'result-row';
+    const ts = formatTimestamp(item.timestamp);
+    const metricsHtml = (item.metrics || []).map(m => `<span class="metric-pill">${esc(m)}</span>`).join('') || '<span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">none</span>';
+    const statsHtml = Object.entries(item.pass_rates || {}).map(([m, s], idx) => {
+      const pct = s && s[1] > 0 ? Math.round(s[0] / s[1] * 100) : 0;
+      const cls = pct >= 80 ? 'good' : pct >= 50 ? 'mid' : 'bad';
+      return `<div class="model-stat">
+        <span class="ms-name" style="min-width:6px;">subject #${idx+1}:</span>
+        <span class="model-chip">${esc(m)}</span>
+        <span class="pass-badge ${cls}">${pct}%</span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">${s[0]}/${s[1]} passed</span>
+      </div>`;
+    }).join('');
+
+    row.innerHTML = `
+      <div class="result-meta" style="flex:1;">
+        <span class="result-ts" style="min-width:0;margin-bottom:8px;">${esc(ts)}</span>
+        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px;">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">judge:</span>
+          <span class="model-chip">${esc(item.judge || '—')}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px;flex-wrap:wrap;">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:.3px;">metrics:</span>
+          ${metricsHtml}
+        </div>
+        <div class="result-stats">${statsHtml}</div>
+      </div>
+      <div class="result-arrow">›</div>`;
+    row.addEventListener('click', () => openResult(item.filename, ts, item));
+    el.appendChild(row);
+  });
+}
+
+function formatTimestamp(ts) {
+  if (!ts) return '—';
+  const m = ts.match(/^r?_?(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}`;
+  return ts;
+}
+
+// ─── Detail page ──────────────────────────────────────────────────────────────
+async function openResult(filename, ts, meta) {
+  const r = await fetch(`/results/${encodeURIComponent(filename)}`);
+  const data = await r.json();
+  currentDetailFilename = filename;
+  currentDetailData = data;
+
+  document.getElementById('detail-title').textContent = `Run — ${ts}`;
+  document.getElementById('detail-meta').textContent =
+    `judge: ${meta.judge || '—'}   |   models: ${(meta.models || []).join(', ')}   |   metrics: ${(meta.metrics || []).join(', ')}`;
+
+  showDetail();
+
+  const results = data.results || {};
+  const modelKeys = Object.keys(results);
+  const tabBar = document.getElementById('detail-tabs');
+  const viewer = document.getElementById('json-viewer');
+
+  if (!modelKeys.length) {
+    tabBar.innerHTML = '';
+    viewer.innerHTML = renderJson(data);
+    attachToggleListeners(viewer);
+    return;
+  }
+
+  tabBar.innerHTML = '';
+  modelKeys.forEach((m, i) => {
+    const tab = document.createElement('div');
+    tab.className = `tab${i === 0 ? ' active' : ''}`;
+    tab.textContent = m;
+    tab.addEventListener('click', () => {
+      tabBar.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      viewer.innerHTML = renderJson(results[m]);
+      attachToggleListeners(viewer);
+    });
+    tabBar.appendChild(tab);
+  });
+  viewer.innerHTML = renderJson(results[modelKeys[0]]);
+  attachToggleListeners(viewer);
+}
+
+function downloadCurrentResult() {
+  if (!currentDetailData) return;
+  const blob = new Blob([JSON.stringify(currentDetailData, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = currentDetailFilename || 'result.json';
+  a.click();
+}
+
+function showMain() {
+  document.getElementById('page-main').classList.add('active');
+  document.getElementById('page-detail').classList.remove('active');
+}
+function showDetail() {
+  document.getElementById('page-main').classList.remove('active');
+  document.getElementById('page-detail').classList.add('active');
+}
+
+// ─── JSON renderer ────────────────────────────────────────────────────────────
+function renderJson(val, depth = 0) {
+  if (val === null) return `<span class="json-null">null</span>`;
+  if (typeof val === 'boolean') return `<span class="json-bool">${val}</span>`;
+  if (typeof val === 'number') return `<span class="json-number">${val}</span>`;
+  if (typeof val === 'string') return `<span class="json-string">${esc(JSON.stringify(val))}</span>`;
+  if (Array.isArray(val)) {
+    if (!val.length) return `<span class="json-null">[]</span>`;
+    const id = uid();
+    const inner = val.map((v, i) =>
+      `<span class="json-line"><span class="json-indent">${renderJson(v, depth+1)}${i < val.length-1 ? ',' : ''}</span></span>`).join('');
+    return `<span class="json-toggle" data-id="${id}" data-open="1"><span class="collapse-icon">▾</span>[</span><span id="${id}">${inner}</span>]<span class="json-collapsed-hint" id="${id}-hint" style="display:none"> [${val.length} items]</span>`;
+  }
+  if (typeof val === 'object') {
+    const keys = Object.keys(val);
+    if (!keys.length) return `<span class="json-null">{}</span>`;
+    const id = uid();
+    const inner = keys.map((k, i) =>
+      `<span class="json-line"><span class="json-indent"><span class="json-key">${esc(JSON.stringify(k))}</span>: ${renderJson(val[k], depth+1)}${i < keys.length-1 ? ',' : ''}</span></span>`).join('');
+    return `<span class="json-toggle" data-id="${id}" data-open="1"><span class="collapse-icon">▾</span>{</span><span id="${id}">${inner}</span>}<span class="json-collapsed-hint" id="${id}-hint" style="display:none"> {${keys.length} keys}</span>`;
+  }
+  return esc(String(val));
+}
+
+function attachToggleListeners(container) {
+  container.querySelectorAll('.json-toggle').forEach(el => {
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = el.dataset.id;
+      const body = document.getElementById(id);
+      const hint = document.getElementById(id + '-hint');
+      const icon = el.querySelector('.collapse-icon');
+      if (el.dataset.open === '1') {
+        body.style.display = 'none'; hint.style.display = 'inline';
+        icon.textContent = '▸'; el.dataset.open = '0';
+      } else {
+        body.style.display = ''; hint.style.display = 'none';
+        icon.textContent = '▾'; el.dataset.open = '1';
+      }
+    });
+  });
+}
+
+let _uid = 0;
+function uid() { return 'j' + (++_uid); }
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

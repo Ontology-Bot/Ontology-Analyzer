@@ -1,0 +1,4 @@
+# Global environment variables are automatically loaded from .env file
+include:
+  - ./infra/docker-compose.yml
+  - ./impl/docker-compose.yml

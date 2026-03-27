@@ -5,7 +5,7 @@ date: 2026-02-11
 version: 1.0
 license: MIT
 description: It takes ontology and embeds triples (converting them to sentences before)
-requirements: ollama, openai, sentence_transformers, chromadb, sparqlwrapper
+requirements: ollama, sentence_transformers, chromadb, sparqlwrapper, openai
 """
 
 from typing import List, Union, Generator, Iterator
@@ -17,7 +17,7 @@ import traceback
 try:
     from prototypes.stupidrag.stupidrag import StupidRAG
     from prototypes.utils.main import set_last_message, get_cache_path
-    from prototypes.utils.llm_adapter import build_llm_adapter
+    from prototypes.utils.llm_adapter import build_llm_adapter, LLMAdapter
 except Exception as e:
     traceback.print_exc()
     raise
@@ -30,10 +30,10 @@ logger.setLevel(logging.INFO)
 class Pipeline:
     class Valves(BaseModel):
         top_k: int = 5
-        LLM_PROVIDER: str = "openai_compat"
-        LLM_BASE_URL: str = "https://chat-ai.academiccloud.de/v1/"
+        LLM_PROVIDER: str
+        LLM_BASE_URL: str
         LLM_API_KEY: str
-        LLM_DEFAULT_MODEL: str = ""
+        LLM_DEFAULT_MODEL: str
         SPARQL_BASE_URL: str
         
     def __init__(self):
@@ -43,14 +43,14 @@ class Pipeline:
         self.toggle = True 
 
         self.model = None
-        self.client = None
+        self.client: LLMAdapter | None = None
 
         self.valves = self.Valves(
             **{ # type: ignore (we do not initialize top_k here)
-                "LLM_PROVIDER": os.getenv("LLM_PROVIDER", "openai_compat"),
-                "LLM_BASE_URL": os.getenv("LLM_BASE_URL", "https://chat-ai.academiccloud.de/v1/"),
-                "LLM_API_KEY": os.getenv("LLM_API_KEY", ""),
                 "LLM_DEFAULT_MODEL": os.getenv("LLM_DEFAULT_MODEL", ""),
+                "LLM_PROVIDER": os.getenv("LLM_PROVIDER", ""),
+                "LLM_BASE_URL": os.getenv("LLM_BASE_URL", ""),
+                "LLM_API_KEY": os.getenv("LLM_API_KEY", ""),
                 "SPARQL_BASE_URL": os.getenv("SPARQL_BASE_URL", "")
             }
         )
@@ -74,7 +74,7 @@ class Pipeline:
         if (self.valves.SPARQL_BASE_URL == "" or self.valves.LLM_BASE_URL == ""):
             logger.error("Empty SPARQL_BASE_URL and LLM_BASE_URL")
             return
-        self.model = StupidRAG(self.valves.top_k, self.valves.SPARQL_BASE_URL, cachepath=get_cache_path())
+        self.model = StupidRAG(self.valves.SPARQL_BASE_URL, cachepath=get_cache_path(), queries_limit=10_000)
         self.client = build_llm_adapter(
             provider=self.valves.LLM_PROVIDER,
             base_url=self.valves.LLM_BASE_URL,
@@ -121,7 +121,7 @@ class Pipeline:
         logger.info(f"UserQuery: {user_message}")
 
         # 2. Get context
-        context = self.model.process(user_message)
+        context = self.model.process(user_message, self.valves.top_k)
 
         logger.info(f"Extracted context: {context}")
         # 3. Form new query with context
@@ -129,6 +129,8 @@ class Pipeline:
         if len(context) > 0:
             for c in context:
                 msg += f"{c}\n\n"
+            if len(context) == self.valves.top_k:
+                msg += "NOTE: There might be more relevant context, but only top-k is provided. \n\n"
         else:
             msg += "NO RELEVANT CONTEXT FOUND \n\n"
         msg += f"USER QUERY:\n{user_message}\n\nANSWER:\n"
@@ -139,20 +141,8 @@ class Pipeline:
         # 4. Query the llm
         try:
             if body.get("stream", False):
-                def stream_generator(client):
-                    for chunk in client.stream_text(
-                        model=model_id,
-                        messages=messages
-                    ):
-                        yield chunk
-                return stream_generator(self.client)
+                return self.client.stream_text(model_id, messages)
             else:
-                response = self.client.chat_text(
-                    model=model_id,
-                    messages=messages
-                )
-                return response
+                return self.client.chat_json(model_id, messages)
         except Exception as e:
-            return f"Error calling LLM: {str(e)}"
-
-        
+            return f"Error calling LLM: {str(e)}"  

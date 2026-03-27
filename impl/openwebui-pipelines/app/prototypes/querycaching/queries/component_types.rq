@@ -1,0 +1,8 @@
+SELECT DISTINCT ?type
+WHERE {
+  ?s ?p ?o .
+  FILTER(CONTAINS(STR(?s), "Conveyor"))
+  BIND(REPLACE(STR(?s), "^.*?/([^/]+Conveyor)/.*$", "$1") AS ?type)
+  FILTER(CONTAINS(?type, "Conveyor"))
+}
+LIMIT 100

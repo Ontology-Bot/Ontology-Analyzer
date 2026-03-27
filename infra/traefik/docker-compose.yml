@@ -5,7 +5,7 @@ services:
     image: traefik:v3.1
     container_name: traefik
     ports:
-      - "80:80"
+      - "8088:80"
       - "${TRAEFIK_DASHBOARD_PORT}:8080"
     volumes:
       - ./traefik.yml:/etc/traefik/traefik.yml:ro

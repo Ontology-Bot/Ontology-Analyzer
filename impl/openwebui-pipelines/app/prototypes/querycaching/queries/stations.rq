@@ -1,14 +1,9 @@
-PREFIX rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX rdfs:   <http://www.w3.org/2000/01/rdf-schema#>
-PREFIX aml:    <https://w3id.org/hsu-aut/AutomationML#>
-PREFIX lib:    <http://www.semanticweb.org/AutomationML/ontologies/structure/libraries#>
+PREFIX aml: <https://w3id.org/hsu-aut/AutomationML#>
 
-SELECT DISTINCT ?stationName
+SELECT DISTINCT ?station
 WHERE {
-  ?s rdf:type lib:MaterialFlow_WorkCell .
-  OPTIONAL { ?s aml:hasName ?n }
-  OPTIONAL { ?s rdfs:label ?l }
-  BIND(COALESCE(?n, ?l) AS ?stationName)
-  FILTER(BOUND(?stationName))
+  ?s aml:hasName ?station .
+  FILTER regex(str(?station), "^ST[0-9]+$")
 }
-ORDER BY ?stationName
+ORDER BY ?station
+LIMIT 500

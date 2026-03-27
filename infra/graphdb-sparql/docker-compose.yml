@@ -31,9 +31,9 @@ services:
       graphdb:
         condition: service_healthy
     volumes:
-      - ./_secret:/data # .ttl ontology files
-      - ./init:/init
-    entrypoint: ["/bin/bash", "/init/import-ttl.sh"]
+      - ./_secret:/data       # .ttl ontology files
+      - ./init:/init          # import-ttl.sh + graphdb.ttl
+    entrypoint: [ "/bin/bash", "/init/import-ttl.sh" ]
     environment:
-      - GRAPHDB_URL=http://graphdb:7200
-      - REPO_ID=ontobot
+      GRAPHDB_URL: http://graphdb:7200
+      REPO_ID: ontobot

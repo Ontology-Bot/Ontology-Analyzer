@@ -97,8 +97,9 @@ class StupidRAG:
 
     def _ingest_ontology(self, queries_limit: int | None = None):
         QUERY = """
-select ?s ?label ?type ?description ?attrLabel ?attrComment ?rootAttr ?attr ?attrValue ?attrUnit ?attrType ?lnk ?lnkType ?lnkLabel where {
+select ?guid ?label ?type ?description ?attrLabel ?attrComment ?rootAttr ?attr ?attrValue ?attrUnit ?attrType ?lnk ?lnkType ?lnkLabel where {
     ?s rdfs:label ?label .
+    ?s obot:guid ?guid .
     ?s rdf:type ?type .
     ?s rdfs:comment ?description .
     OPTIONAL {
@@ -124,8 +125,6 @@ select ?s ?label ?type ?description ?attrLabel ?attrComment ?rootAttr ?attr ?att
             ?lnk rdfs:label ?lnkLabel .
         }
     }
-    
-    
     FILTER(STRSTARTS(STR(?type), STR(lib:MaterialFlow_))) .
     FILTER(?type NOT IN (lib:MaterialFlow_InterfaceClass, lib:MaterialFlow_Thing))
 }

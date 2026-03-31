@@ -10,8 +10,9 @@ logger.setLevel(logging.INFO)
 
 from prototypes.rag.embedding_model import get_model
 from prototypes.utils.sparql.common import run_query, extract_guid, to_camel, split_camel_case
-from prototypes.toolassist.sparql_queries import *
+from prototypes.utils.sparql.sparql_queries import *
 from prototypes.utils.sparql.block import Block
+from prototypes.toolassist.pathfinding import PathFinder
 
 from typing import List
 class SparqlTools:
@@ -25,6 +26,9 @@ class SparqlTools:
         self.vector_db = chromadb.PersistentClient(path=f"{cachepath}/chroma_db")
         self.dict_db = self.vector_db.get_or_create_collection(name="dictionary")
         self.model = get_model(f"{cachepath}/embedding_model_cache")
+
+        self.pathfinder = PathFinder()
+        self._build_path_cache()
 
         if clean:
             self.clear()
@@ -40,30 +44,24 @@ class SparqlTools:
         self.dict_db = self.vector_db.create_collection(name="dictionary")
         logger.warning("SparqlTools: cleared!")
 
-    def get_node_context(self, node_label_or_guid: str):
-        ''' Performs exact match by laber or guid string using sparql query
-        Returns list of sentences describing object under that label or guid
-        Or None if not found
+    def get_node_context(self, node: str):
+        ''' Performs exact match by label or guid string using sparql query
+
+        Returns (True, Block | None)
+        Or (False, list of candidate guids) if ambuguous
         '''
-        query = None
-        params = {}
-        if extract_guid(node_label_or_guid) is None:
-            # a label
-            query = GET_NODE_CONTEXT
-            params = {"label": node_label_or_guid}
-        else:
-            # a guid
-            query = GET_NODE_CONTEXT_BY_GUID
-            params = {"s": node_label_or_guid}
+        guids = self._label_to_guids(node)
+        if len(guids) != 1: # not found
+            return False, guids
 
         block = None
-        for row in run_query(self.sparql, query, node_label=node_label_or_guid):
+        for row in run_query(self.sparql, GET_NODE_CONTEXT, guid=guids[0]):
             if block is None:
                 # new block
-                block = Block(**row, **params)
+                block = Block(**row)
             block.add_attr(**row)
             block.add_connection(**row)
-        return block
+        return True, block
     
 
     def _test_exact_term_match(self, term: str, metas: list[chromadb.Metadata]):
@@ -205,3 +203,35 @@ class SparqlTools:
         #     documents=terminology,
         #     metadatas=metadatas
         # )
+
+    def _build_path_cache(self):
+        for row in run_query(self.sparql, GET_CONNECTIONS):
+            self.pathfinder.add_connection(row)
+
+    def get_path(self, node_a: str, node_b: str):
+        """ Returns (True, path | None)
+            Or (False, guids node a, guids node b) if labels are ambiguous
+        """
+        guids_a = self._label_to_guids(node_a)
+        guids_b = self._label_to_guids(node_b)
+
+        if len(guids_a) == 1 and len(guids_b) == 1:
+            return True, self.pathfinder.get_path(guids_a[0], guids_b[0])
+        return False, (guids_a, guids_b)
+    
+    def check_integrity(self):
+        return self.pathfinder.get_unreachable()
+                
+    def get_guid(self, label: str):
+        """ Returns list of matching guids for label
+        """
+        res: list[str] = []
+        for row in run_query(self.sparql, GET_GUID, label=label):
+            res.append(row["guid"])
+        return res
+    
+    def _label_to_guids(self, node: str):
+        if extract_guid(node): 
+            return [node] 
+        return self.get_guid(node)
+

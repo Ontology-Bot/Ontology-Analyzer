@@ -1,18 +1,12 @@
 from SPARQLWrapper import SPARQLWrapper
 from string import Template
 
+from prototypes.utils.sparql.sparql_queries import PREFIX
+
 import re
 
 import logging
 logger = logging.getLogger(__name__)
-
-PREFIX = """
-PREFIX : <http://www.semanticweb.org/AutomationML/ontologies/structure#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX lib: <http://www.semanticweb.org/AutomationML/ontologies/structure/libraries#>
-PREFIX inst: <http://www.semanticweb.org/AutomationML/ontologies/structure/instances#>
-"""
 
 def make_query(body: str, header: str, limit: int, offset: int = 0):
         return f"{header}\n{body} LIMIT {limit} OFFSET {offset}"
@@ -58,8 +52,8 @@ def run_query(sparql: SPARQLWrapper, template: str, queries_limit=None, **kwargs
             return
 
 def extract_guid(s: str):
-    pattern = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-    match = re.search(pattern, s)
+    pattern = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    match = re.match(pattern, s)
     return match.group() if match else None
 
 def split_camel_case(text: str):

@@ -6,8 +6,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 import click
 
+from app.config import get_config
 from app.scheuduler import Scheduler
-from app.testcase_loader import load_testcases
+from app.evaluator import Evaluator
 
 # Configure logging
 def setup_logging(level: int | str):
@@ -22,11 +23,13 @@ def setup_logging(level: int | str):
 @click.argument("judge", envvar="DEEPEVAL_JUDGE", required=True)
 @click.argument("models", envvar="DEEPEVAL_MODELS", required=True)
 @click.argument("metrics", required=True)
-@click.option("--testcases", required=True, type=click.Path(exists=True, file_okay=True), help="Path to .json file where golden dataset is")
+@click.option("--testcases", help="Name of .json file where golden dataset is", default="golden-dataset.json")
 @click.option("--env", required=True, type=click.Path(exists=True, file_okay=True), help="Path to .env file to load credentials from")
 @click.option('-v', '--verbose', is_flag=True,
-              help='Enable verbose logging (equivalent to --log-level DEBUG)')
-def main(judge: str, models: str, metrics: str, env: Path, testcases: Path, verbose: bool):
+              help='Enable verbose logging (log level DEBUG)')
+@click.option('-c', '--cache', is_flag=True,
+              help='Enable caching of LLM responses')
+def main(judge: str, models: str, metrics: str, env: Path, testcases: str, verbose: bool, cache: bool):
     """
     CLI runner for DeepEval.
     """
@@ -36,35 +39,18 @@ def main(judge: str, models: str, metrics: str, env: Path, testcases: Path, verb
     load_dotenv(env)
     logger.info(f"Loaded environment variables from {env}")
     #
-    required_vars = [
-        "OPENAI_SUBJECT_BASE_URL",
-        "OPENAI_SUBJECT_API_KEY",
-        "OPENAI_JUDGE_BASE_URL",
-        "OPENAI_JUDGE_API_KEY",
-        "DEEPEVAL_RESULTS_FOLDER"
-
-    ]
-    missing = [v for v in required_vars if not os.environ.get(v)]
-    if missing:
-        logger.error(f"Missing required environment variables: {', '.join(missing)}")
-        sys.exit(1)
-    #
-    load_testcases(str(testcases))
-
     models_list = [m.strip() for m in models.split(",") if m.strip()]
     if not models_list:
         logger.error("No models provided. Use --models or DEEPEVAL_MODELS env var.")
         sys.exit(1)
 
     metrics_list = [m.strip() for m in metrics.split(",") if m.strip()]
-    if not models_list:
+    if not metrics_list:
         logger.error("No metrics provided. Use --metrics.")
         sys.exit(1)
 
-    DATA_DIR = os.environ.get("DEEPEVAL_RESULTS_FOLDER") or "./data"
-    os.makedirs(DATA_DIR, exist_ok=True)
-
-    scheduler = Scheduler(DATA_DIR)
+    evaluator = Evaluator(get_config(strict=True, cache=cache, dataset_file=testcases))
+    scheduler = Scheduler(evaluator)
 
     # Run evaluation for all models at once
     logger.info(f"Starting evaluation with judge '{judge}' for models: {models_list}")

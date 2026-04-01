@@ -362,6 +362,7 @@
   .prog-value { font-family: var(--mono); font-size: 20px; font-weight: 600; color: var(--text-bright); }
   .prog-value.accent { color: var(--accent); }
   .prog-value.green { color: var(--green); }
+  .prog-value.red { color: var(--red); }
 
   /* ─── Results list ─── */
   .result-row {
@@ -573,6 +574,10 @@
                   <span class="status-ring unknown" id="conn-subject" title="Subject API status"><span class="dot-inner"></span></span>
                 </div>
                 <div class="field">
+                  <label class="field-label">Provider</label>
+                  <input type="text" id="subject-provider" placeholder="openai" />
+                </div>
+                <div class="field">
                   <label class="field-label">Base URL</label>
                   <input type="text" id="subject-url" placeholder="https://api.openai.com/v1" />
                 </div>
@@ -590,6 +595,10 @@
                 <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;">
                   <span style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:0.8px;text-transform:uppercase;">Judge</span>
                   <span class="status-ring unknown" id="conn-judge" title="Judge API status"><span class="dot-inner"></span></span>
+                </div>
+                <div class="field">
+                  <label class="field-label">Provider</label>
+                  <input type="text" id="judge-provider" placeholder="openai" />
                 </div>
                 <div class="field">
                   <label class="field-label">Base URL</label>
@@ -631,6 +640,7 @@
         <div class="card">
           <div class="card-header">
             <div class="card-title">Run Evaluation</div>
+            <input id="invalidate-cache" type="checkbox" value="${m}"><span>Invalidate model cache</span>
           </div>
           <div class="card-body">
             <button class="btn btn-run" id="run-btn">▶ Run Evaluation</button>
@@ -654,6 +664,10 @@
               <div class="prog-item">
                 <div class="prog-label">Completed</div>
                 <div class="prog-value green" id="prog-total">0</div>
+              </div>
+              <div class="prog-item">
+                <div class="prog-label">Errors</div>
+                <div class="prog-value red" id="prog-errors">0</div>
               </div>
             </div>
           </div>
@@ -701,6 +715,8 @@ const LS = {
   SUBJECT_KEY: 'deval_subject_key',
   JUDGE_URL: 'deval_judge_url',
   JUDGE_KEY: 'deval_judge_key',
+  SUBJECT_PROVIDER: 'deval_subject_provider',
+  JUDGE_PROVIDER: 'deval_subject_provider',
 };
 
 // ─── State ──────────────────────────────────────────────────────────────────
@@ -785,39 +801,49 @@ async function restoreCache() {
     const r = await fetch('/config/');
     if (r.ok) {
       const cfg = await r.json();
-      setVal('subject-url', cfg.OPENAI_SUBJECT_BASE_URL);
-      setVal('subject-key', cfg.OPENAI_SUBJECT_API_KEY);
-      setVal('judge-url', cfg.OPENAI_JUDGE_BASE_URL);
-      setVal('judge-key', cfg.OPENAI_JUDGE_API_KEY);
+      setVal('subject-url', cfg.SUBJECT_LLM_BASE_URL);
+      setVal('subject-key', cfg.SUBJECT_LLM_API_KEY);
+      setVal('subject-provider', cfg.SUBJECT_LLM_PROVIDER);
+      setVal('judge-url', cfg.JUDGE_LLM_BASE_URL);
+      setVal('judge-key', cfg.JUDGE_LLM_API_KEY);
+      setVal('judge-provider', cfg.JUDGE_LLM_PROVIDER);
       // Also persist to localStorage as fallback
-      if (cfg.OPENAI_SUBJECT_BASE_URL) localStorage.setItem(LS.SUBJECT_URL, cfg.OPENAI_SUBJECT_BASE_URL);
-      if (cfg.OPENAI_SUBJECT_API_KEY) localStorage.setItem(LS.SUBJECT_KEY, cfg.OPENAI_SUBJECT_API_KEY);
-      if (cfg.OPENAI_JUDGE_BASE_URL) localStorage.setItem(LS.JUDGE_URL, cfg.OPENAI_JUDGE_BASE_URL);
-      if (cfg.OPENAI_JUDGE_API_KEY) localStorage.setItem(LS.JUDGE_KEY, cfg.OPENAI_JUDGE_API_KEY);
+      if (cfg.SUBJECT_LLM_BASE_URL) localStorage.setItem(LS.SUBJECT_URL, cfg.SUBJECT_LLM_BASE_URL);
+      if (cfg.SUBJECT_LLM_API_KEY) localStorage.setItem(LS.SUBJECT_KEY, cfg.SUBJECT_LLM_API_KEY);
+      if (cfg.SUBJECT_LLM_PROVIDER) localStorage.setItem(LS.SUBJECT_PROVIDER, cfg.SUBJECT_LLM_PROVIDER);
+      if (cfg.JUDGE_LLM_BASE_URL) localStorage.setItem(LS.JUDGE_URL, cfg.JUDGE_LLM_BASE_URL);
+      if (cfg.JUDGE_LLM_API_KEY) localStorage.setItem(LS.JUDGE_KEY, cfg.JUDGE_LLM_API_KEY);
+      if (cfg.JUDGE_LLM_PROVIDER) localStorage.setItem(LS.JUDGE_PROVIDER, cfg.JUDGE_LLM_PROVIDER);
       return;
     }
   } catch(e) {}
   // Fallback to localStorage
   setVal('subject-url', localStorage.getItem(LS.SUBJECT_URL));
   setVal('subject-key', localStorage.getItem(LS.SUBJECT_KEY));
+  setVal('subject-provider', localStorage.getItem(LS.SUBJECT_PROVIDER));
   setVal('judge-url', localStorage.getItem(LS.JUDGE_URL));
   setVal('judge-key', localStorage.getItem(LS.JUDGE_KEY));
+  setVal('judge-provider', localStorage.getItem(LS.JUDGE_PROVIDER));
 }
 function setVal(id, val) { if (val) document.getElementById(id).value = val; }
 
 // ─── API Config save (unified) ────────────────────────────────────────────────
 async function saveAllApiConfig() {
   const body = {
-    OPENAI_SUBJECT_BASE_URL: document.getElementById('subject-url').value.trim(),
-    OPENAI_SUBJECT_API_KEY:  document.getElementById('subject-key').value.trim(),
-    OPENAI_JUDGE_BASE_URL:   document.getElementById('judge-url').value.trim(),
-    OPENAI_JUDGE_API_KEY:    document.getElementById('judge-key').value.trim(),
+    SUBJECT_LLM_BASE_URL: document.getElementById('subject-url').value.trim(),
+    SUBJECT_LLM_API_KEY:  document.getElementById('subject-key').value.trim(),
+    SUBJECT_LLM_PROVIDER: document.getElementById('subject-provider').value.trim(),
+    JUDGE_LLM_BASE_URL:   document.getElementById('judge-url').value.trim(),
+    JUDGE_LLM_API_KEY:    document.getElementById('judge-key').value.trim(),
+    JUDGE_LLM_PROVIDER:   document.getElementById('judge-provider').value.trim(),
   };
   // Persist locally
-  localStorage.setItem(LS.SUBJECT_URL, body.OPENAI_SUBJECT_BASE_URL);
-  localStorage.setItem(LS.SUBJECT_KEY, body.OPENAI_SUBJECT_API_KEY);
-  localStorage.setItem(LS.JUDGE_URL,   body.OPENAI_JUDGE_BASE_URL);
-  localStorage.setItem(LS.JUDGE_KEY,   body.OPENAI_JUDGE_API_KEY);
+  localStorage.setItem(LS.SUBJECT_URL, body.SUBJECT_LLM_BASE_URL);
+  localStorage.setItem(LS.SUBJECT_KEY, body.SUBJECT_LLM_API_KEY);
+  localStorage.setItem(LS.SUBJECT_PROVIDER, body.SUBJECT_LLM_PROVIDER);
+  localStorage.setItem(LS.JUDGE_URL,   body.JUDGE_LLM_BASE_URL);
+  localStorage.setItem(LS.JUDGE_KEY,   body.JUDGE_LLM_API_KEY);
+  localStorage.setItem(LS.JUDGE_PROVIDER,   body.JUDGE_LLM_PROVIDER);
   try {
     const r = await fetch('/config/', {
       method: 'POST',
@@ -974,13 +1000,15 @@ async function runEval() {
   if (!judge) { hint.textContent = 'Judge model is required'; return; }
   if (!models.length) { hint.textContent = 'Add at least one subject model'; return; }
 
+  const invalidateCache = document.getElementById('invalidate-cache').checked;
+
   const btn = document.getElementById('run-btn');
   btn.disabled = true;
   try {
     const r = await fetch('/evaluate/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ judge, models, metrics: selectedMetrics })
+      body: JSON.stringify({ judge, models, metrics: selectedMetrics, invalidate_cache: invalidateCache })
     });
     if (!r.ok) {
       const e = await r.json();
@@ -1039,6 +1067,7 @@ function updateStatusUI(s) {
     document.getElementById('prog-generated').textContent = tg;
     document.getElementById('prog-ran').textContent = tr;
     document.getElementById('prog-total').textContent = `${p.total ? Math.round((tr+tg) / (2*p.total)*100) : 0}%`;
+    document.getElementById('prog-errors').textContent = `${p.errors ?? 0}`;
   } else {
     detail.textContent = s.status === 'error' ? (s.error || '') : (s.judge ? `judge: ${s.judge}` : '');
     grid.style.display = 'none';
@@ -1064,12 +1093,13 @@ function renderResultsList(list) {
     const metricsHtml = (item.metrics || []).map(m => `<span class="metric-pill">${esc(m)}</span>`).join('') || '<span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">none</span>';
     const statsHtml = Object.entries(item.pass_rates || {}).map(([m, s], idx) => {
       const pct = s && s[1] > 0 ? Math.round(s[0] / s[1] * 100) : 0;
+      const errors = s && s[2] || 0;
       const cls = pct >= 80 ? 'good' : pct >= 50 ? 'mid' : 'bad';
       return `<div class="model-stat">
         <span class="ms-name" style="min-width:6px;">subject #${idx+1}:</span>
         <span class="model-chip">${esc(m)}</span>
         <span class="pass-badge ${cls}">${pct}%</span>
-        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">${s[0]}/${s[1]} passed</span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">${s[0]}/${s[1]} passed (${errors} errors)</span>
       </div>`;
     }).join('');
 

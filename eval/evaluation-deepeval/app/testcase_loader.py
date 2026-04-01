@@ -1,22 +1,13 @@
 import json
 from pathlib import Path
 from deepeval.test_case import LLMTestCase, ToolCall
+from typing import Any
 
 # https://deepeval.com/docs/evaluation-test-cases
 
-TEST_CASES = []
-
-def load_testcases(path="data/golden-dataset.json"):
-    global TEST_CASES
+def load_testcases(path="data/golden-dataset.json") -> list[dict[str, Any]]:
     if Path(path).exists():
         with open(path) as f:
-            TEST_CASES = json.load(f)["tests"]
+            return json.load(f)["tests"]
     else:
-        TEST_CASES = []
-
-def set_testcases(new_cases):
-    global TEST_CASES
-    TEST_CASES = new_cases
-
-def get_testcases():
-    return TEST_CASES
+        return []

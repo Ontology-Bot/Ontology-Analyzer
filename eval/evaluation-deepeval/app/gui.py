@@ -2,10 +2,9 @@ from fastapi import FastAPI, UploadFile, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
-from .testcase_loader import set_testcases, load_testcases
-from .metrics import get_metrics
 from .scheuduler import Scheduler
-from .clients import get_subject_client, get_judge_client, test_connection, reset_connection
+from .evaluator import Evaluator
+from .config import get_config
 
 import json
 import os
@@ -19,12 +18,8 @@ logger.setLevel(logging.INFO)
 
 app = FastAPI()
 
-load_testcases()
-
-DATA_DIR = os.environ.get("DEEPEVAL_RESULTS_FOLDER") or "./data"
-os.makedirs(DATA_DIR, exist_ok=True)
-
-scheduler = Scheduler(DATA_DIR)
+evaluator = Evaluator(get_config(cache=True))
+scheduler = Scheduler(evaluator)
 
 # UI
 from pathlib import Path
@@ -39,45 +34,58 @@ async def serve_ui():
 async def upload(file: UploadFile):
     logger.info("received upload testcases request")
     data = json.loads((await file.read()).decode())
-    set_testcases(data["tests"])
+    evaluator.set_testcases(data["tests"])
     return {"status": "uploaded", "count": len(data["tests"])}
+
+
+class ConfigRequest(BaseModel):
+    SUBJECT_LLM_BASE_URL: str
+    SUBJECT_LLM_API_KEY: str
+    SUBJECT_LLM_PROVIDER: str
+    JUDGE_LLM_BASE_URL: str
+    JUDGE_LLM_API_KEY: str
+    JUDGE_LLM_PROVIDER: str
+
+    @classmethod
+    def from_env(cls):
+        return cls(
+            SUBJECT_LLM_BASE_URL=os.environ.get("SUBJECT_LLM_BASE_URL", ""),
+            SUBJECT_LLM_API_KEY=os.environ.get("SUBJECT_LLM_API_KEY", ""),
+            SUBJECT_LLM_PROVIDER=os.environ.get("SUBJECT_LLM_PROVIDER", ""),
+            JUDGE_LLM_BASE_URL=os.environ.get("JUDGE_LLM_BASE_URL", ""),
+            JUDGE_LLM_API_KEY=os.environ.get("JUDGE_LLM_API_KEY", ""),
+            JUDGE_LLM_PROVIDER=os.environ.get("JUDGE_LLM_PROVIDER", ""),
+        )
+    
+    def apply_to_env(self):
+        os.environ["SUBJECT_LLM_BASE_URL"] = self.SUBJECT_LLM_BASE_URL
+        os.environ["SUBJECT_LLM_API_KEY"] = self.SUBJECT_LLM_API_KEY
+        os.environ["SUBJECT_LLM_PROVIDER"] = self.SUBJECT_LLM_PROVIDER
+        os.environ["JUDGE_LLM_BASE_URL"] = self.JUDGE_LLM_BASE_URL
+        os.environ["JUDGE_LLM_API_KEY"] = self.JUDGE_LLM_API_KEY
+        os.environ["JUDGE_LLM_PROVIDER"] = self.JUDGE_LLM_PROVIDER
  
 
 @app.get("/config/")
-async def get_config():
-    return {
-        "OPENAI_SUBJECT_BASE_URL": os.environ.get("OPENAI_SUBJECT_BASE_URL"),
-        "OPENAI_SUBJECT_API_KEY": os.environ.get("OPENAI_SUBJECT_API_KEY"),
-        "OPENAI_JUDGE_BASE_URL": os.environ.get("OPENAI_JUDGE_BASE_URL"),
-        "OPENAI_JUDGE_API_KEY": os.environ.get("OPENAI_JUDGE_API_KEY"),
-    }
-
-class ConfigRequest(BaseModel):
-    OPENAI_SUBJECT_BASE_URL: str
-    OPENAI_SUBJECT_API_KEY: str
-    OPENAI_JUDGE_BASE_URL: str
-    OPENAI_JUDGE_API_KEY: str
+async def get_config_():
+    return ConfigRequest.from_env()
 
 @app.post("/config/")
 async def set_config(cr: ConfigRequest):
-    os.environ["OPENAI_SUBJECT_BASE_URL"] = cr.OPENAI_SUBJECT_BASE_URL
-    os.environ["OPENAI_SUBJECT_API_KEY"] = cr.OPENAI_SUBJECT_API_KEY
-    os.environ["OPENAI_JUDGE_BASE_URL"] = cr.OPENAI_JUDGE_BASE_URL
-    os.environ["OPENAI_JUDGE_API_KEY"] = cr.OPENAI_JUDGE_API_KEY
-    reset_connection()
+    cr.apply_to_env()
+    config = get_config(cache=True, strict=True)
+    evaluator.reset_connection(config.subject, config.judge)
 
     
 @app.get("/config/status/")
 async def get_config_status():
-    return {
-        "subject": test_connection(get_subject_client()),
-        "judge": test_connection(get_judge_client()),
-    }
+    return evaluator.get_connection_status()
 
 class EvalRequest(BaseModel):
     judge: str
     models: list[str]
     metrics: list[str]
+    invalidate_cache: bool = False
  
 @app.post("/evaluate/")
 async def evaluate_models(req: EvalRequest, background_tasks: BackgroundTasks):
@@ -87,13 +95,15 @@ async def evaluate_models(req: EvalRequest, background_tasks: BackgroundTasks):
     scheduler.state["judge"] = req.judge
     scheduler.state["models"] = req.models
     scheduler.state["metrics"] = req.metrics
+    scheduler.state["invalidate_cache"] = req.invalidate_cache
     scheduler.state["last_result_file"] = None
 
     background_tasks.add_task(
         scheduler.run_evaluation_task,
         req.judge,
         req.models,
-        req.metrics
+        req.metrics,
+        req.invalidate_cache
     )
 
     return {"status": "started"}
@@ -104,53 +114,19 @@ async def get_status():
 
 @app.get("/metrics/")
 async def get_metrics_list():
-    return list(get_metrics("").keys())
+    return evaluator.get_metric_names()
 
 @app.get("/results/")
 async def list_results():
-    files = sorted(glob.glob(os.path.join(DATA_DIR, "r_*.json")), reverse=True)
-    results = []
-    for f in files:
-        name = os.path.basename(f)
-        ts = name.replace(".json", "")
-        try:
-            with open(f) as fp:
-                data = json.load(fp)
-            # calculate pass rate
-            pass_rates = {}
-            metrics = data.get("metrics", [])
-            models = data.get("models", [])
-            tests_res = data.get("results", {})
-            for m, entry in tests_res.items():
-                tests = entry["test_results"]
-                total = len(tests)
-                passed = sum(1 for t in tests if t.get("success") is True)
-                pass_rates[m] = (passed, total)
-            #
-            results.append({
-                "filename": name,
-                "timestamp": data.get("timestamp", ts),
-                "judge": data.get("judge", ""),
-                "models": models,
-                "metrics": metrics,
-                "pass_rates": pass_rates
-            })
-        except Exception:
-            pass
-    return results
+    return scheduler.list_results()
  
 @app.post("/results/clear")
 async def clear_results():
-    logger.warning("Deleting ALL results")
-    for f in glob.glob(os.path.join(DATA_DIR, "r_*.json")):
-        os.remove(f)
-    for f in glob.glob(os.path.join(DATA_DIR, "*[!.json]")):
-        os.remove(f)
+    return scheduler.clear_results()
  
 @app.get("/results/{filename}")
 async def get_result(filename: str):
-    filepath = os.path.join(DATA_DIR, filename)
-    if not os.path.exists(filepath) or not filename.endswith(".json"):
+    result = scheduler.get_result(filename) 
+    if not result:
         raise HTTPException(status_code=404, detail="Not found")
-    with open(filepath) as f:
-        return json.load(f)
+    return result

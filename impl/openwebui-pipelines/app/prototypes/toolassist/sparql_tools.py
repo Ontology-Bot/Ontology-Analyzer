@@ -206,6 +206,7 @@ class SparqlTools:
 
     def _build_path_cache(self):
         for row in run_query(self.sparql, GET_CONNECTIONS):
+            # print(row)
             self.pathfinder.add_connection(row)
 
     def get_path(self, node_a: str, node_b: str):
@@ -216,11 +217,17 @@ class SparqlTools:
         guids_b = self._label_to_guids(node_b)
 
         if len(guids_a) == 1 and len(guids_b) == 1:
-            return True, self.pathfinder.get_path(guids_a[0], guids_b[0])
+            fwd_path = self.pathfinder.get_path(guids_a[0], guids_b[0])
+            if fwd_path:
+                return True, (True, fwd_path)
+            bwd_path = self.pathfinder.get_path(guids_b[0], guids_a[0])
+            if bwd_path:
+                return True, (False, bwd_path)
+            return True, None
         return False, (guids_a, guids_b)
     
     def check_integrity(self):
-        return self.pathfinder.get_unreachable()
+        return self.pathfinder.get_islands()
                 
     def get_guid(self, label: str):
         """ Returns list of matching guids for label

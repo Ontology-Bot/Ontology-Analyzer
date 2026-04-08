@@ -118,13 +118,14 @@ SELECT ?guid ?label ?type ?lnkType ?guidLnk {
         ?lnk obot:guid ?guidLnk .
 
         VALUES ?lnkType {
-            :contains
-            :containedIn
+            # :contains
+            # :containedIn
             obot:connectedTo
             obot:connectedFrom
         }
     }
-    FILTER(STRSTARTS(STR(?type), STR(lib:MaterialFlow_))) .
+    FILTER(STRSTARTS(STR(?type), STR(lib:MaterialFlow_))) .  
+    ?s rdf:type lib:MaterialFlow_MaterialHandlingComponent . # TODO I filter ONLY TL TR stuff for now
     FILTER(?type NOT IN (lib:MaterialFlow_InterfaceClass, lib:MaterialFlow_Thing))
 }
 """

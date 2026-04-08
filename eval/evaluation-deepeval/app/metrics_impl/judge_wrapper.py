@@ -16,10 +16,12 @@ class OpenAIBaseLLM(DeepEvalBaseLLM):
         return self
 
     def generate(self, prompt: str) -> str:
-        return self.client.chat_text(self.model_name, prompt, self.invalidate_cache)
+        res, _ = self.client.chat_text(self.model_name, prompt, self.invalidate_cache)
+        return res
 
     async def a_generate(self, prompt: str) -> str:
-        return await self.client.a_chat_text(self.model_name, prompt, self.invalidate_cache)
+        res, _ = await self.client.a_chat_text(self.model_name, prompt, self.invalidate_cache)
+        return res
 
     def get_model_name(self):
         return self.model_name

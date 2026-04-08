@@ -11,7 +11,7 @@ logger.setLevel(logging.INFO)
 
 from app.testcase_loader import load_testcases
 from app.metrics import construct_metrics
-from app.llm_adapter import test_connection, build_llm_adapter, LLMAdapterSettings
+from app.llm_adapter import LLMUsage, test_connection, build_llm_adapter, LLMAdapterSettings
 from app.llm_cache import LLMCache
 from app.metrics_impl.judge_wrapper import OpenAIBaseLLM, StubLLM
 
@@ -68,10 +68,13 @@ class Evaluator:
         if err:
             raise ValueError(f"judge model error '{judge}': {err}")
 
-        # get model responces and create deepeval cases
+        # get model responses and create deepeval cases
         deepeval_cases = []
         for i, testcase in enumerate(self._testcases):
             output = testcase.get("output")
+            duration = testcase.get("duration")
+            total_tokens = testcase.get("token_usage")
+            usage = LLMUsage(duration=duration, total_tokens=total_tokens)
             
             if not output: # do completions
                 logger.info(f"\tawaiting model completion for '{testcase['input']}' ({i}/{len(self._testcases)})")
@@ -79,7 +82,8 @@ class Evaluator:
                     tracker["tests_generated"] += 1
                 
                 try:
-                    output = self._subject.chat_text(model, testcase["input"], invalidate_cache) or ""
+                    output, usage = self._subject.chat_text(model, testcase["input"], invalidate_cache) or ""
+
                 except Exception as e:
                     import traceback
                     logger.error(f"Invalid response from model {model}")
@@ -89,12 +93,20 @@ class Evaluator:
                         tracker["errors"] += 1
                     raise
             
+            logger.info(f"\tgot response for '{testcase['input']}' ({i}/{len(self._testcases)})")
+            logger.info(f"\trecorded usage: {usage.model_dump()} for model '{model}'")
+            
             # create testcase
-            deepeval_cases.append(LLMTestCase(
+            test_case = LLMTestCase(
                 input=testcase["input"],
                 actual_output=output,
                 expected_output=testcase["expected_output"],
-            ))
+                additional_metadata=usage.model_dump(),
+                token_cost=usage.total_tokens,
+                completion_time=usage.duration
+            )
+            deepeval_cases.append(test_case)
+
         logger.info(f"completions for model '{model}' done")
             
         # select metrics

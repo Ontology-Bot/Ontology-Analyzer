@@ -41,7 +41,10 @@ This file has following structure:
 ```
 {"tests": [{
     "input": "...",
-    "expected_output": "..."
+    "expected_output": "...",
+    "output": "[optional] substitute llm output",
+    "duration": "[optional] substitute llm generation duration",
+    "token_usage": "[optional] substitute llm tokens spent for generation",
 }, {
     ...
 }]}

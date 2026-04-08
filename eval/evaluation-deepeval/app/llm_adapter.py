@@ -8,9 +8,12 @@ from openai import AsyncOpenAI, OpenAI
 from ollama import Client, AsyncClient
 
 from .llm_cache import LLMCache
+from .llm_usage import LLMUsage
 
 import logging
 logger = logging.getLogger(__name__)
+
+import time
 
 def test_connection(client: LLMAdapter):
     try:
@@ -18,7 +21,7 @@ def test_connection(client: LLMAdapter):
         return True
     except Exception as e:
         return False
-
+    
 class LLMAdapter(ABC):
     def __init__(self, cache: LLMCache | None = None, key_prefix: str = "") -> None:
         super().__init__()
@@ -28,27 +31,28 @@ class LLMAdapter(ABC):
     def _cache_key(self, model: str, message: str) -> str:
         return str((self.key_prefix, model, message))
 
-    def _get_cached(self, model: str, message: str) -> str | None:
+    def _get_cached(self, model: str, message: str) -> tuple[str, LLMUsage] | None:
         cached = self.cache and self.cache.get(self._cache_key(model, message))
+        logger.info(f"trying cached input-output pair for model {model}")
         if cached:
             logger.info(f"used cached input-output pair for model {model}")
         return cached or None
 
-    def _set_cached(self, model: str, message: str, output: str) -> None:
+    def _set_cached(self, model: str, message: str, output: str, usage: LLMUsage | None = None) -> None:
         if self.cache:
             logger.info(f"caching input-output pair for model {model}")
-            self.cache.set(self._cache_key(model, message), output)
+            self.cache.set(self._cache_key(model, message), output, usage)
 
     @abstractmethod
     def list_models(self) -> list[str]:
         raise NotImplementedError
     
     @abstractmethod
-    def chat_text(self, model: str, message: str, invalidate_cache: bool = True, **kwargs) -> str:
+    def chat_text(self, model: str, message: str, invalidate_cache: bool = True, **kwargs) -> tuple[str, LLMUsage]:
         raise NotImplementedError
     
     @abstractmethod
-    def a_chat_text(self, model: str, message: str, invalidate_cache: bool = True, **kwargs) -> Awaitable[str]:
+    def a_chat_text(self, model: str, message: str, invalidate_cache: bool = True, **kwargs) -> Awaitable[tuple[str, LLMUsage]]:
         raise NotImplementedError
     
     @abstractmethod
@@ -66,10 +70,11 @@ class OpenAICompatAdapter(LLMAdapter):
         model_data = self.client.models.list()
         return [model.id for model in model_data.data]
 
-    def chat_text(self, model: str, message: str, invalidate_cache: bool = True, **kwargs) -> str:
+    def chat_text(self, model: str, message: str, invalidate_cache: bool = True, **kwargs) -> tuple[str, LLMUsage]:
         if not invalidate_cache and (cached := self._get_cached(model, message)):
             return cached
 
+        start = time.time()
         response = self.client.chat.completions.create(
             model=model,
             messages=[
@@ -77,13 +82,25 @@ class OpenAICompatAdapter(LLMAdapter):
             ],
             **kwargs
         )
+        duration = time.time() - start
+
         output = response.choices[0].message.content or ""
-        self._set_cached(model, message, output)
-        return output
+        # tool_calls = [tc.function for tc in response.choices[0].message.tool_calls if "function" in tc]
+        u = response.usage
+        usage = LLMUsage(
+            prompt_tokens=u.prompt_tokens,
+            completion_tokens=u.completion_tokens,
+            total_tokens=u.total_tokens,
+            duration=duration
+        )
+        self._set_cached(model, message, output, usage)
+        return output, usage
     
-    async def a_chat_text(self, model: str, message: str, invalidate_cache: bool = True, **kwargs) -> str:
+    async def a_chat_text(self, model: str, message: str, invalidate_cache: bool = True, **kwargs) -> tuple[str, LLMUsage]:
         if not invalidate_cache and (cached := self._get_cached(model, message)):
             return cached
+        
+        start = time.time()
         response = await self.a_client.chat.completions.create(
             model=model,
             messages=[
@@ -91,9 +108,18 @@ class OpenAICompatAdapter(LLMAdapter):
             ],
             **kwargs
         )
+        duration = time.time() - start
+
         output = response.choices[0].message.content or ""
+        u = response.usage
+        usage = LLMUsage(
+            prompt_tokens=u.prompt_tokens,
+            completion_tokens=u.completion_tokens,
+            total_tokens=u.total_tokens,
+            duration=duration
+        )
         self._set_cached(model, message, output)
-        return output
+        return output, usage
     
     def test_model(self, model: str) -> str:
         try:
@@ -114,7 +140,7 @@ class OllamaAdapter(LLMAdapter):
     def list_models(self) -> list[str]:
         return [model.model or "none-model" for model in self.client.list().models]
 
-    def chat_text(self, model: str, message: str, invalidate_cache: bool = True, **kwargs) -> str:
+    def chat_text(self, model: str, message: str, invalidate_cache: bool = True, **kwargs) -> tuple[str, LLMUsage]:
         if not invalidate_cache and (cached := self._get_cached(model, message)):
             return cached
 
@@ -124,10 +150,16 @@ class OllamaAdapter(LLMAdapter):
             **kwargs
         )
         output = response.message.content or ""
+        usage = LLMUsage(
+            prompt_tokens=getattr(response, 'prompt_eval_count', 0),
+            completion_tokens=getattr(response, 'eval_count', 0),
+            total_tokens=getattr(response, 'prompt_eval_count', 0) + getattr(response, 'eval_count', 0),
+            duration=getattr(response, 'total_duration', 0) / 1e9
+        )
         self._set_cached(model, message, output)
-        return output
+        return output, usage
 
-    async def a_chat_text(self, model: str, message: str, invalidate_cache: bool = True, **kwargs) -> str:
+    async def a_chat_text(self, model: str, message: str, invalidate_cache: bool = True, **kwargs) -> tuple[str, LLMUsage]:
         if not invalidate_cache and (cached := self._get_cached(model, message)):
             return cached
 
@@ -137,8 +169,14 @@ class OllamaAdapter(LLMAdapter):
             **kwargs
         )
         output = response.message.content or ""
+        usage = LLMUsage(
+            prompt_tokens=getattr(response, 'prompt_eval_count', 0),
+            completion_tokens=getattr(response, 'eval_count', 0),
+            total_tokens=getattr(response, 'prompt_eval_count', 0) + getattr(response, 'eval_count', 0),
+            duration=getattr(response, 'total_duration', 0) / 1e9
+        )
         self._set_cached(model, message, output)
-        return output
+        return output, usage
     
     def test_model(self, model: str) -> str:
         try:

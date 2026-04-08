@@ -1,10 +1,13 @@
 from collections import deque
 
+from logging import getLogger
+logger = getLogger(__name__)
+
 class Node:
-    def __init__(self) -> None:
+    def __init__(self, guid: str) -> None:
         self.forward: list[str] = []
         self.backward: list[str] = []
-        self.guid: str = "ERROR"
+        self.guid: str = guid
         self.label = "ERROR"
         self.type = "ERROR"
     
@@ -31,21 +34,23 @@ class PathFinder:
     def get_or_add(self, guid: str) -> Node:
         node = self.nodes.get(guid)
         if not node:
-            node = Node()
+            node = Node(guid)
             self.nodes[guid] = node
         return node
 
     def add_connection(self, row: dict[str, str]):
         node_a_guid = row["guid"]
-        node_b_guid = row["guidLnk"]
-        lnkType = row["lnkType"]
+        node_b_guid = row.get("guidLnk") # may be empty if node has no connections
+        lnkType = row.get("lnkType")
         #
         node_a = self.get_or_add(node_a_guid)
+        node_a.fill_details(**row)
+        #
+        if not node_b_guid:
+            return
+        logger.warning(f"Adding connection {node_a_guid} {lnkType} {node_b_guid}")
+        # now node b is safe
         node_b = self.get_or_add(node_b_guid)
-        # Todo containment must be bidirectional for path finding
-        # while connectins are guaranteed both dir, containtments are not, do a check
-        if lnkType == "contains" or lnkType == "connectedTo": # forward link
-            node_a.fill_details(**row)
         match lnkType:
             case "contains": # bidir
                 node_a.add_forward(node_b_guid)
@@ -56,7 +61,7 @@ class PathFinder:
             case "connectedTo":
                 node_a.add_forward(node_b_guid)
             case "connectedFrom":
-                node_b.add_backward(node_a_guid)
+                node_a.add_backward(node_b_guid)
             case _:
                 raise ValueError(f"Unknown lnk type {node_a_guid} {lnkType} {node_b_guid} ")
 
@@ -70,6 +75,25 @@ class PathFinder:
                 visited.add(node)
                 stack.extend(getter(self.nodes[node]))
         return visited
+    
+
+    def get_islands(self):
+        remaining = set(self.nodes.keys())
+        islands: list[list[Node]] = []
+
+        while remaining:
+            start = next(iter(remaining))
+
+            reachable_from = self._dfs(start, lambda n: n.forward)
+            reachable_to   = self._dfs(start, lambda n: n.backward)
+
+            island = reachable_from | reachable_to
+
+            islands.append([self.nodes[n] for n in island])
+
+            remaining -= island
+
+        return islands
 
     
     def get_unreachable(self, start_guid = None):
@@ -82,7 +106,6 @@ class PathFinder:
         all_nodes = set(self.nodes.keys())
         
         return [self.nodes[n] for n in (all_nodes - reachable)]
-
     
     def get_path(self, guid_a: str, guid_b: str):
         if guid_a not in self.nodes or guid_b not in self.nodes:

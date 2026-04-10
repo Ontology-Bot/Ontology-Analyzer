@@ -1,7 +1,11 @@
 # Ontology-Analyzer
 
+## Setup
+- I cannot recommend nothing better than going into each individual service and check readme.md
+- Make sure .env files are set up
+
 ## Running
 
-- For lazy people, run the whole project using `docker compose --env-file ./infra/.env up`
+- For lazy people, run the whole project using `docker compose up`. `.env` files are loaded automatically for corresponding projects
 - Docs for infrastructure are in `./infra/`
 - Docs for prototypes are in `./impl/`

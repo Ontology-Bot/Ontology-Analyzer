@@ -2,3 +2,4 @@
 include:
   - ./infra/docker-compose.yml
   - ./impl/docker-compose.yml
+  - ./eval/docker-compose.yml

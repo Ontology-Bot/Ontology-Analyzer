@@ -73,7 +73,7 @@ class Pipeline(FunctionCallingBlueprint):
                     return f"There are no instances of `{exact_match['term']}`."
                 else:
                     result += f"List of instances of `{exact_match['term']}`:\n"
-                    result += "\n".join(f"- `{inst['label']}` is {inst['description']} [`{inst['s']}`]" for inst in res_list) # type: ignore - because 0 len is checked incl None
+                    result += "\n".join(f"- `{inst['label']}` is {inst['description']} [`{inst['guid']}`]" for inst in res_list) # type: ignore - because 0 len is checked incl None
             else:
                 if res_list_len == 0:
                     return f"Nothing related to `{material_handling_class}` was found."

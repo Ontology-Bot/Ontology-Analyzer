@@ -39,8 +39,9 @@ SELECT ?class ?description ?child ?parent {
 
 
 GET_LIST = """
-select ?s ?label ?description where {
+select ?guid ?label ?description where {
     ?s rdfs:label ?label .
+    ?s obot:guid ?guid .
     ?s rdf:type lib:MaterialFlow_${term} .
     ?s rdfs:comment ?description .
 }

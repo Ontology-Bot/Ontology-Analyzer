@@ -135,7 +135,7 @@ select ?guid ?label ?type ?description ?attrLabel ?attrComment ?rootAttr ?attr ?
         blocks: dict[str, Block] = {}
 
         for row in run_query(sparql, QUERY, queries_limit):
-            block_id = row["s"]
+            block_id = row["guid"]
             block = blocks.get(block_id)
             if block is None:
                 # new block

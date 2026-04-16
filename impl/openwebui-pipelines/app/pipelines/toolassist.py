@@ -64,15 +64,15 @@ class Pipeline(FunctionCallingBlueprint):
             :return: Matched class and a list of identificators of instances, as '<label> is <description> [`<guid>`]'. If the class was not found, it returns list of most similar classes.
             """
             logger.info(f"--- get_list_of() {material_handling_class} ---")
-            exact_match, res_list = self.sparql_tools.get_list(material_handling_class)
+            exact_match_meta, res_list = self.sparql_tools.get_list(material_handling_class)
 
             result = ""
             res_list_len = len(res_list) if res_list is not None else 0
-            if exact_match is not None:
+            if exact_match_meta is not None:
                 if res_list_len == 0:
-                    return f"There are no instances of `{exact_match['term']}`."
+                    return f"There are no instances of `{exact_match_meta['term']}`."
                 else:
-                    result += f"List of instances of `{exact_match['term']}`:\n"
+                    result += f"List of instances of `{exact_match_meta['term']}`:\n"
                     result += "\n".join(f"- `{inst['label']}` is {inst['description']} [`{inst['guid']}`]" for inst in res_list) # type: ignore - because 0 len is checked incl None
             else:
                 if res_list_len == 0:
@@ -92,7 +92,7 @@ class Pipeline(FunctionCallingBlueprint):
             :return: A list of closest definitions explaining the term in format 'definition. [optional superterm]. [optional subterms]'. If nothing was not found, returns a notification.
             """
             logger.info(f"--- get_materialflow_term_definition() {term} ---")
-            exact_match, _, _, metas = self.sparql_tools.get_definition(term)
+            exact_match_meta, _, _, metas = self.sparql_tools.get_definition(term)
 
             def term_to_string(meta):
                 res = f"`{meta['term']}` is {meta['explanation']} "
@@ -106,8 +106,8 @@ class Pipeline(FunctionCallingBlueprint):
                         res += f"Subordinate term is `{children[0]}`. "
                 return res
 
-            if exact_match is not None:
-                return term_to_string(exact_match)
+            if exact_match_meta is not None:
+                return term_to_string(exact_match_meta)
             
             result = f"Exact term `{term}` was not found. The list of most similar terms: \n"
             result += "\n".join(term_to_string(m) for m in metas)

@@ -64,13 +64,13 @@ class SparqlTools:
         return True, block
     
 
-    def _test_exact_term_match(self, term: str, metas: list[chromadb.Metadata]):
+    def _test_exact_term_match(self, term: str, metas: list[chromadb.Metadata]) -> tuple[str | None, chromadb.Metadata | None]:
         normalized_term = self._normalize_term(term) # to compare camel case with camel case
         for m in metas:
             t: str = m["term"] # type: ignore
-            if normalized_term.lower() == t.lower():
+            if normalized_term.lower() == t.lower() and isinstance(m["term"], str):
                 # exact match
-                return normalized_term, m
+                return m["term"], m
         return None, None
     
     def _normalize_term(self, term):
@@ -86,27 +86,26 @@ class SparqlTools:
         '''
 
         # get from dict
-        exact_match, _, _, metas = self.get_definition(term)
-        print(exact_match)
+        exact_match_meta, _, _, metas = self.get_definition(term)
         if metas is None or len(metas) < 1:
-            return exact_match, None
+            return None, None
         
         # test for exact match
-        if exact_match is None:
+        if exact_match_meta is None:
             # not found - spit out 10 closest terms
-            return exact_match, metas[0:10]
+            return exact_match_meta, metas[0:10]
 
         result = []
-        for row in run_query(self.sparql, GET_LIST, term=self._normalize_term(term)):
+        for row in run_query(self.sparql, GET_LIST, term=exact_match_meta["term"]):
             result.append(row)
         
-        return exact_match, result
+        return exact_match_meta, result
 
 
     def get_definition(self, term: str):
         ''' Checks term using dictionary
 
-        Return tuple[exact_match, texts, distances, metadatas]
+        Return tuple[exact_match_meta ("term", "explanation"), candidates, distances, metadatas]
         '''
 
         cutoff = 0.6
@@ -126,17 +125,14 @@ class SparqlTools:
         metadatas = res["metadatas"][0] 
         # node_ids = res["ids"][0]
 
-        print(metadatas)
-        print(distances)
-
         cutoff_index = next((idx for idx, d in enumerate(distances) if d > cutoff), len(distances))
         answers = answers[0:cutoff_index]
         distances = distances[0:cutoff_index]
         metadatas = metadatas[0:cutoff_index]
 
-        exact_match, exact_match_meta = self._test_exact_term_match(term, metadatas)
+        exact_match, exact_match_meta = self._test_exact_term_match(term, metadatas) # metadata: term, explanation - see _ingest_dictionary
 
-        return exact_match_meta, answers, distances, metadatas, 
+        return exact_match_meta, answers, distances, metadatas 
 
 
     def _ingest_dictionary(self):

@@ -79,7 +79,8 @@ class Pipeline:
 </context>
 
 When answer to user:
-- Put all labels and GUIDs in `` quotes.
+- Put all labels, terms, and GUIDs in `` quotes.
+- If context has a very long list - print top 10 items at first.
 - If you don't know, just say that you don't know.
 - If you don't know when you are not sure, ask for clarification.
 Avoid mentioning that you obtained the information from the context.
@@ -150,6 +151,7 @@ USE DICTIONARY AS PRIMARY KNOWLEDGE, DO NOT INVENT KNOWLEDGE OUTSIDE OF CONTEXT
     # Call the function
     def call_function(self, result, messages: list[dict]) -> list[dict]:
         if "name" not in result:
+            logging.warning(f"LLM used wrong function calling convention {result}")
             return messages
 
         function = getattr(self.tools, result["name"], None)

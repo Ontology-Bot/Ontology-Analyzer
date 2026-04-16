@@ -152,11 +152,14 @@ class Pipeline(FunctionCallingBlueprint):
             islands = self.sparql_tools.check_integrity()
             if len(islands) == 1:
                 return "Material flow integrity check passed: no isolated components found."
-            # for idx, i in enumerate(islands):
-            #     print(f"island {idx} (size {len(i)}): ")
-            #     for c in i:
-            #         print(f"\t- {c.label} {c.guid}")
-            res = f"Material flow integrity check failed: contains isolated components with {len(islands) - 1} groups:\n"
+            res = ""
+            for idx, i in enumerate(islands):
+                # print(f"island {idx} (size {len(i)}): ")
+                res += f"island {idx} (size {len(i)}):\n"
+                for c in i:
+                    res += f"- {c.label} `{c.guid}`\n"
+                    # print(f"\t- {c.label} {c.guid}")
+            res = f"Material flow integrity check failed: contains isolated components with {len(islands) - 1} groups:\n{res}"
             # res += "\n".join([f"- {p.type} `{p.label}` (`{p.guid}`)" for p in islands[0]]) # type: ignore
             return res
             

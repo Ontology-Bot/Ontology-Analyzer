@@ -48,7 +48,7 @@ class PathFinder:
         #
         if not node_b_guid:
             return
-        logger.warning(f"Adding connection {node_a_guid} {lnkType} {node_b_guid}")
+        logger.info(f"Adding connection {node_a_guid} {lnkType} {node_b_guid}")
         # now node b is safe
         node_b = self.get_or_add(node_b_guid)
         match lnkType:

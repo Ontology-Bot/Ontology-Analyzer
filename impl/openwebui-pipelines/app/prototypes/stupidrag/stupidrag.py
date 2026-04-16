@@ -97,8 +97,9 @@ class StupidRAG:
 
     def _ingest_ontology(self, queries_limit: int | None = None):
         QUERY = """
-select ?s ?label ?type ?description ?attrLabel ?attrComment ?rootAttr ?attr ?attrValue ?attrUnit ?attrType ?lnk ?lnkType ?lnkLabel where {
+select ?guid ?label ?type ?description ?attrLabel ?attrComment ?rootAttr ?attr ?attrValue ?attrUnit ?attrType ?lnk ?lnkType ?lnkLabel where {
     ?s rdfs:label ?label .
+    ?s obot:guid ?guid .
     ?s rdf:type ?type .
     ?s rdfs:comment ?description .
     OPTIONAL {
@@ -124,8 +125,6 @@ select ?s ?label ?type ?description ?attrLabel ?attrComment ?rootAttr ?attr ?att
             ?lnk rdfs:label ?lnkLabel .
         }
     }
-    
-    
     FILTER(STRSTARTS(STR(?type), STR(lib:MaterialFlow_))) .
     FILTER(?type NOT IN (lib:MaterialFlow_InterfaceClass, lib:MaterialFlow_Thing))
 }
@@ -136,7 +135,7 @@ select ?s ?label ?type ?description ?attrLabel ?attrComment ?rootAttr ?attr ?att
         blocks: dict[str, Block] = {}
 
         for row in run_query(sparql, QUERY, queries_limit):
-            block_id = row["s"]
+            block_id = row["guid"]
             block = blocks.get(block_id)
             if block is None:
                 # new block

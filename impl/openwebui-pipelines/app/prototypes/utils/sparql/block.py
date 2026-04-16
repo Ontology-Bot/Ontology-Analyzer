@@ -11,14 +11,14 @@ class BlockAttribute:
 
 
 class Connection:
-    def __init__(self, lnk: str, lnkType: str, lnkLabel: str, **kwargs) -> None:
+    def __init__(self, lnkGuid: str, lnkType: str, lnkLabel: str, **kwargs) -> None:
         self.type = split_camel_case(lnkType)
-        self.guid = lnk
+        self.guid = lnkGuid
         self.label = lnkLabel
 
 class Block:
-    def __init__(self, s: str, label: str, description: str, type: str, **kwargs) -> None:
-        self.guid = s
+    def __init__(self, guid: str, label: str, description: str, type: str, **kwargs) -> None:
+        self.guid = guid
         self.label = label
         self.descr = description
         self.type = preprocess_str(type)

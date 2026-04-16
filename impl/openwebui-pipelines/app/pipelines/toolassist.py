@@ -39,14 +39,19 @@ class Pipeline(FunctionCallingBlueprint):
             """
             Get a detailed information about a material handling component, including its qualities, parameters, containtments, and close connections. Performs an exact search by label or GUID string.
 
-            :param component_label_or_guid: Material handling component identificator. Can be short label, which consists of uppercase letters and/or numbers. Can be long string, containing GUID.
+            :param component_label_or_guid: Material handling component identificator. Can be short label, which consists of uppercase letters and/or numbers. Can be GUID.
             :return: Detailed information about specified component. If component was not found, returns a notification.
             """
             logger.info(f"--- get_materialflow_node_context() {component_label_or_guid} ---")
-            block = self.sparql_tools.get_node_context(component_label_or_guid)
+            res, block = self.sparql_tools.get_node_context(component_label_or_guid)
+            if res == False: # component_label is ambiguous
+                if len(block) > 0: # type: ignore - idk why typing fails. Here it is a list
+                    return f"Label `{component_label_or_guid}` is ambiguous. Use GUID to reference this component"
+                else:
+                    return f"Label `{component_label_or_guid}` was not found"
             if block is None:
-                return "Instance `{component_label_or_guid}` was not found."
-            ss, _ = block.to_sentences()
+                return f"Instance `{component_label_or_guid}` was not found."
+            ss, _ = block.to_sentences() # type: ignore - idk why typing fails. Here it is a Block
 
             tmp = '\n'.join(ss)
             return f"Information about `{component_label_or_guid}`:\n{tmp}."
@@ -59,16 +64,16 @@ class Pipeline(FunctionCallingBlueprint):
             :return: Matched class and a list of identificators of instances, as '<label> is <description> [`<guid>`]'. If the class was not found, it returns list of most similar classes.
             """
             logger.info(f"--- get_list_of() {material_handling_class} ---")
-            exact_match, res_list = self.sparql_tools.get_list(material_handling_class)
+            exact_match_meta, res_list = self.sparql_tools.get_list(material_handling_class)
 
             result = ""
             res_list_len = len(res_list) if res_list is not None else 0
-            if exact_match is not None:
+            if exact_match_meta is not None:
                 if res_list_len == 0:
-                    return f"There are no instances of `{exact_match['term']}`."
+                    return f"There are no instances of `{exact_match_meta['term']}`."
                 else:
-                    result += f"List of instances of `{exact_match['term']}`:\n"
-                    result += "\n".join(f"- `{inst['label']}` is {inst['description']} [`{inst['s']}`]" for inst in res_list) # type: ignore - because 0 len is checked incl None
+                    result += f"List of instances of `{exact_match_meta['term']}`:\n"
+                    result += "\n".join(f"- `{inst['label']}` is {inst['description']} [`{inst['guid']}`]" for inst in res_list) # type: ignore - because 0 len is checked incl None
             else:
                 if res_list_len == 0:
                     return f"Nothing related to `{material_handling_class}` was found."
@@ -87,7 +92,7 @@ class Pipeline(FunctionCallingBlueprint):
             :return: A list of closest definitions explaining the term in format 'definition. [optional superterm]. [optional subterms]'. If nothing was not found, returns a notification.
             """
             logger.info(f"--- get_materialflow_term_definition() {term} ---")
-            exact_match, _, _, metas = self.sparql_tools.get_definition(term)
+            exact_match_meta, _, _, metas = self.sparql_tools.get_definition(term)
 
             def term_to_string(meta):
                 res = f"`{meta['term']}` is {meta['explanation']} "
@@ -101,8 +106,8 @@ class Pipeline(FunctionCallingBlueprint):
                         res += f"Subordinate term is `{children[0]}`. "
                 return res
 
-            if exact_match is not None:
-                return term_to_string(exact_match)
+            if exact_match_meta is not None:
+                return term_to_string(exact_match_meta)
             
             result = f"Exact term `{term}` was not found. The list of most similar terms: \n"
             result += "\n".join(term_to_string(m) for m in metas)
@@ -110,9 +115,53 @@ class Pipeline(FunctionCallingBlueprint):
             return result
 
 
-        # def get_path_between_nodes(self, node_a_label, node_b_label):
+        def get_path_between_nodes(self, component_a, component_b) -> str:
+            """
+            Get a path from a material handling component A to B. Performs an exact search by label or GUID string.
+
+            :param component_a: Material handling component A identificator. Can be short label, which consists of uppercase letters and/or numbers. Can be GUID.
+            :param component_b: Material handling component B identificator. Can be short label, which consists of uppercase letters and/or numbers. Can be GUID.
+            :return: Shortest path from A to B including all intermediate components. If error occured, returns
+            """
+            res, path = self.sparql_tools.get_path(component_a, component_b)
+            if not res:
+                err: tuple[list[str], list[str]] = path # type: ignore 
+                res = ""
+                if len(err[0]) > 1:
+                    res += f"Label `{component_a}` is ambiguous. "
+                elif len(err[0]) == 0 :
+                    res += f"Label `{component_a}` was not found. "
+                if len(err[1]) > 1:
+                    res += f"Label `{component_b}` is ambiguous. "
+                elif len(err[1]) == 0 :
+                    res += f"Label `{component_b}` was not found. "
+                return res
+            if not path:
+                return f"Path between `{component_a}` and `{component_b}` does not exist"
+            is_fwd, path = path
+            res = f"Path between `{component_a}` and `{component_b}` exists{' ' if is_fwd else ' but backward'} and is:\n"
+            res += "\n".join([f"- {p.type} `{p.label}` (`{p.guid}`)" for p in path]) # type: ignore
+            return res
             
-        # def check_materialflow_integrity(self):
+        def check_materialflow_integrity(self):
+            """
+            Performs a check whether material flow graph has isolated components.
+
+            :return: Success message, or list of isolated components
+            """
+            islands = self.sparql_tools.check_integrity()
+            if len(islands) == 1:
+                return "Material flow integrity check passed: no isolated components found."
+            res = ""
+            for idx, i in enumerate(islands):
+                # print(f"island {idx} (size {len(i)}): ")
+                res += f"island {idx} (size {len(i)}):\n"
+                for c in i:
+                    res += f"- {c.label} `{c.guid}`\n"
+                    # print(f"\t- {c.label} {c.guid}")
+            res = f"Material flow integrity check failed: contains isolated components with {len(islands) - 1} groups:\n{res}"
+            # res += "\n".join([f"- {p.type} `{p.label}` (`{p.guid}`)" for p in islands[0]]) # type: ignore
+            return res
             
         
     def __init__(self):

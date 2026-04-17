@@ -25,7 +25,10 @@ class LLMCache:
         with shelve.open(self.filename) as f:
             result = f.get(hashed_key, default)
             if isinstance(result, tuple):
-                return result
+                output, usage = result
+                if usage is None:
+                    usage = LLMUsage()
+                return output, usage
             elif isinstance(result, str):
                 return result, LLMUsage()
             return None

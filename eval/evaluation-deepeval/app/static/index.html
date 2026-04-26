@@ -1231,26 +1231,33 @@ function getEvalRowForTest(modelMap, tid, testBody) {
   return null;
 }
 
-function findMetricResultItem(evalRow, metricKey) {
+// task.metrics uses registry keys (e.g. "geval"); deepeval MetricData.name is the metric's own label (e.g. "Correctness").
+// evaluate() is called with metrics in task order, so metrics_data[i] aligns with task.metrics[i].
+function findMetricResultItem(evalRow, metricKey, metricIndex) {
   const res = evalRow && evalRow.result;
   if (!res || typeof res !== 'object') return null;
   const items = Array.isArray(res) ? res : res.metrics_data;
-  if (!Array.isArray(items)) return null;
+  if (!Array.isArray(items) || !items.length) return null;
   const key = String(metricKey);
-  return items.find(x => {
+  const byName = items.find(x => {
     if (!x || typeof x !== 'object') return false;
     const n = x.name != null ? x.name : x.metric_name;
     if (n === metricKey || String(n) === key) return true;
     return typeof n === 'string' && n.toLowerCase() === key.toLowerCase();
-  }) || null;
+  });
+  if (byName) return byName;
+  if (metricIndex != null && metricIndex >= 0 && metricIndex < items.length) return items[metricIndex];
+  return null;
 }
 
-function metricCellHtml(evalRow, metricKey) {
-  const item = findMetricResultItem(evalRow, metricKey);
+function metricCellHtml(evalRow, metricKey, metricIndex) {
+  const item = findMetricResultItem(evalRow, metricKey, metricIndex);
   if (!item) return '<span style="color:var(--text-dim)">—</span>';
   const err = item.error || (item.metrics_data && item.metrics_data[0] && item.metrics_data[0].error);
   if (err) return `<span style="color:var(--red);font-size:11px">${esc(String(err))}</span>`;
-  const score = item.score !== undefined ? item.score : item.success;
+  let score = item.score;
+  if (score === undefined || score === null) score = item.success;
+  if (score === undefined || score === null) return '<span style="color:var(--text-dim)">—</span>';
   return `<span class="mini-metric">${esc(String(score))}</span>`;
 }
 
@@ -1435,7 +1442,7 @@ function renderRunnerTable() {
     const chk = restrict
       ? `<input type="checkbox" class="row-test-check" data-test-id="${esc(tid)}" ${checked.has(tid) ? 'checked' : ''}/>`
       : '';
-    const metricCells = metrics.map(m => `<td>${metricCellHtml(evalRow, m)}</td>`).join('');
+    const metricCells = metrics.map((m, idx) => `<td>${metricCellHtml(evalRow, m, idx)}</td>`).join('');
     tr.innerHTML = `
       <td style="display:${restrict ? 'table-cell' : 'none'}">${chk}</td>
       <td>${esc(tid)}</td>

@@ -39,27 +39,32 @@ ENV file requires following strings:
 ### golden-dataset.json
 This file has following structure:
 ```
-{"tests": [{
+{
+  "name": "my-dataset-id",
+  "tests": [{
+    "name": "unique-test-id",
     "input": "...",
     "expected_output": "...",
+    "label": "short-label",
     "output": "[optional] substitute llm output",
     "duration": "[optional] substitute llm generation duration",
     "token_usage": "[optional] substitute llm tokens spent for generation",
-}, {
-    ...
-}]}
+  }]
+}
 ```
 
-- `input` and `expected_output` are mandatory.
+- `name` (top level) identifies the dataset in the snapshot store; it is required by the loader.
+- Each test needs `name`, `input`, `expected_output`, and `label` (see `TestCase` in `app/repo/snapshot.py`).
 - You may use `output` field to skip model call. Keep in mind `output` will be used for ALL models specified for the test run - use only when you test ONE model
 
 ### Project structure:
 - `app`
-  - `clients.py` - static OpenAI clients init
-  - `metrics.py` - dictionary of available metrics. Register new metrics here, add them to `metrics_impl` folder.
-  - `testcase_loader.py` - contains functions to preload dataset
-  - `evaluator.py` - core evaluation logic
-  - `scheuduler.py` - wrapper for `evaluator.py`, stores and tracks status info
-  - `cli.py` - cli wrapper
-  - `main.py` - gui wrapper
+  - `config.py` — env and `EvaluatorSettings`
+  - `metrics.py` — dictionary of available metrics; register new metrics here and under `metrics_impl/`
+  - `testcase_loader.py` — load golden JSON from disk
+  - `evaluator.py` — core evaluation logic
+  - `gui.py` — FastAPI UI
+  - `cli.py` — CLI wrapper
+  - `llm_adapter.py`, `llm_cache.py`, `llm_usage.py` — subject/judge HTTP clients and cache
+  - `repo/` — snapshot persistence (`Repository`, `Snapshot`)
 - `data`: put `golden-dataset.json` here

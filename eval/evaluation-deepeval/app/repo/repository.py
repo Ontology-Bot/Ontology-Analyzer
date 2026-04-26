@@ -1,8 +1,6 @@
-
-from curses import meta
 from pathlib import Path
 
-from app.repo.snapshot import Snapshot, EvaluatedTestResult
+from app.repo.snapshot import Snapshot
 from app.repo.helpers import read_json, write_json
 
 
@@ -40,12 +38,12 @@ class Repository:
 
     def _save_result(self, snapshot: Snapshot, update_head: bool = True):
         # save snapshot to new folder with timestamp
-        timestamp = snapshot.timestamp.isoformat()
+        timestamp = snapshot.timestamp.strftime("%Y%m%d_%H%M%S")
         folder_path = self.path / timestamp
         folder_path.mkdir(exist_ok=True)
         result_path = folder_path / "snapshot.json"
         logger.info(f"Saving snapshot {timestamp}")
-        write_json(result_path, snapshot.model_dump())
+        write_json(result_path, snapshot.model_dump(mode="json"))
         if update_head:
             logger.info(f"Updated head {timestamp}")
             write_json(self.head_path, {"timestamp": timestamp})

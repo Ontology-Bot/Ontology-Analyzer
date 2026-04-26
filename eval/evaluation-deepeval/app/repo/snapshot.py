@@ -35,9 +35,9 @@ class EvaluatedTestResult(BaseModel):
     Small Proxy for model x test 
     '''
     test_id: str
-    status: Literal["cached", "pending", "generated", "done", "error"]
+    status: Literal["cached", "pending", "generated", "pass", "fail", "error"]
     output: str | None = None
-    result: list[TestResult] | None = None
+    result: TestResult | None = None
     error: str | None = None
 
 
@@ -83,9 +83,9 @@ class Snapshot(BaseModel):
     @staticmethod
     def _build_model_results(
         prev: "Snapshot | None", 
-        target_models: list[str], 
-        current_tests: dict[str, TestCase],
-        ids_to_run: set[str]
+        target_models: list[str], # requested models for display
+        current_tests: dict[str, TestCase], # full list of tests
+        ids_to_run: set[str] # tests 
     ) -> dict[str, dict[str, EvaluatedTestResult]]:
         """
         generic logic to carry over results or initialize new ones.
@@ -93,11 +93,11 @@ class Snapshot(BaseModel):
         output = {}
         prev_models = prev.models if prev else {}
 
-        for model_id in target_models:
-            model_results = {}
+        for model_id in target_models: # for each model
+            model_results = {} 
             existing_results = prev_models.get(model_id, {})
 
-            for t_id, test in current_tests.items():
+            for t_id, test in current_tests.items(): # each test
                 is_pending = t_id in ids_to_run
                 
                 if not is_pending and t_id in existing_results:
@@ -146,16 +146,13 @@ class Snapshot(BaseModel):
                 if match and match.name != old_test.name:
                     # pop new test & store it under old name (to be able to resolve later)
                     merged_tests[old_test.name] = merged_tests.pop(match.name)
-
-        # 4. which tests to copy
-        ids_to_run = set(merged_tests.keys()) 
         
         return cls(
             repo_id=repo_id,
             timestamp=datetime.now(),
             task=task,
             tests=merged_tests,
-            models=cls._build_model_results(prev, task.models, merged_tests, ids_to_run)
+            models=cls._build_model_results(prev, task.models, merged_tests, set()) # mark all as cached
         )
 
     @classmethod
@@ -188,12 +185,6 @@ class EvaluationTracker:
         self.summary = EvaluationSummary(total=len(self.test_set) * len(request.models))
         self.current_tests: dict[str, EvaluatedTestResult] | None = None
         self.failed: set[str] = set()
-
-    def model_dump(self):
-        return {
-            "summary": self.summary.model_dump(),
-            "snapshot": self.snapshot.model_dump(),
-        }
 
     def set_current_model(self, model: str):
         self.summary.current_model = model
@@ -228,6 +219,7 @@ class EvaluationTracker:
             self.summary.errors += 1
         if output is not None:
             tracker.status = "generated"
+            tracker.output = output
             self.summary.tests_generated += 1
             
         logger.info(f"\t{tracker.status} at '{test_id}' for model '{self.summary.current_model}' ({self.summary.tests_generated}/{self.summary.total})")
@@ -241,7 +233,8 @@ class EvaluationTracker:
             tracker.status = "error"
             self.summary.errors += 1
         if result:
-            tracker.status = "done"
+            tracker.result = result
+            tracker.status = "pass" if result.success else "fail"
             self.summary.tests_evaluated += 1
         if result is None and error is None:
             logger.warning(f"Setting test result for '{test_id}' without result or error - error asumed")

@@ -48,7 +48,8 @@ class Evaluator:
         # load repo
         self.repo = Repository(self.path / "repo")
         self.tracker: EvaluationTracker | None = None
-        self.load_testcases(read_testcases(settings.dataset_file))
+        self.last_error: str | None = None
+        self.load_testcases(read_testcases(self.path / "golden-dataset.json"))
 
     def is_running(self) -> bool:
         return self._is_running
@@ -76,26 +77,27 @@ class Evaluator:
             logger.error("Already running")
             return
 
-        # validate input
-        if len(task.metrics) == 0:
-            raise ValueError("no metrics providen")
-        # judge must be available
-        _test_model_throw(self._judge, task.judge)
-        judge_wrapper = OpenAIBaseLLM(task.judge, self._judge, task.invalidate_cache)
-        # build metric list
-        metrics = construct_metrics(judge_wrapper, task.metrics)
-
-        # create new snapshot
-        if self.snapshot is None:
-            raise ValueError("No snapshot loaded")
-        snapshot = Snapshot.from_task(self.snapshot, task)
-
-        self.tracker = EvaluationTracker(
-            request=task,
-            snapshot=snapshot
-        )
+        self.last_error = None
         self._is_running = True
         try:
+            # validate input
+            if len(task.metrics) == 0:
+                raise ValueError("no metrics providen")
+            # judge must be available
+            _test_model_throw(self._judge, task.judge)
+            judge_wrapper = OpenAIBaseLLM(task.judge, self._judge, task.invalidate_cache)
+            # build metric list
+            metrics = construct_metrics(judge_wrapper, task.metrics)
+
+            # create new snapshot
+            if self.snapshot is None:
+                raise ValueError("No snapshot loaded")
+            snapshot = Snapshot.from_task(self.snapshot, task)
+
+            self.tracker = EvaluationTracker(
+                request=task,
+                snapshot=snapshot
+            )
             # for each model
             for model in task.models:
                 self.tracker.set_current_model(model)
@@ -139,6 +141,11 @@ class Evaluator:
 
             self.repo.commit(self.tracker.snapshot)
             self.snapshot = self.tracker.snapshot
+            self.last_error = None
             return self.tracker
+        except Exception as exc:
+            logger.exception("Evaluation failed")
+            self.last_error = str(exc)
+            return None
         finally:
             self._is_running = False

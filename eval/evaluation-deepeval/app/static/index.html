@@ -177,6 +177,7 @@
   /* Same ↻ glyph as .spin-icon, but no rotation on the clickable rerun control */
   .btn-rerun .spin-icon { animation: none; }
   th.metric-col { font-size: 9px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+  th.col-time, th.col-tokens, td.col-time, td.col-tokens { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
   .spin-icon { display: inline-block; animation: spin 0.9s linear infinite; font-size: 16px; line-height: 1; }
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
@@ -846,8 +847,13 @@ function showGlobalError(msg) {
 window.addEventListener('DOMContentLoaded', () => {
   restoreCache();
   loadMetrics();
-  refreshSnapshotSelectOptions().then(() => loadSelectedSnapshot());
-  pollStatus();
+  (async () => {
+    await pollStatus();
+    await refreshSnapshotSelectOptions(false);
+    const sel = document.getElementById('snapshot-select');
+    if (evalRunning && [...sel.options].some(o => o.value === '__live__')) sel.value = '__live__';
+    await loadSelectedSnapshot();
+  })();
 
   document.getElementById('run-btn').addEventListener('click', () => runEvalPayload(null));
 
@@ -1048,7 +1054,8 @@ async function doUpload() {
     showHint('upload-hint', `✓ ${d.count} testcase${d.count !== 1 ? 's' : ''} uploaded`, 'ok');
     document.querySelector('.upload-drop-label').innerHTML = 'Drop JSON or <b>click to browse</b>';
     fileInput.value = '';
-    refreshSnapshotSelectOptions().then(() => loadSelectedSnapshot());
+    await refreshSnapshotSelectOptions(false, true);
+    await loadSelectedSnapshot();
   } catch(e) {
     showHint('upload-hint', 'Upload failed: ' + e.message, 'err');
   } finally {
@@ -1167,7 +1174,7 @@ function rebuildRunnerTableHead() {
   const metrics = getTaskMetricNames();
   let html = '';
   html += `<th id="th-select" style="display:${restrict ? 'table-cell' : 'none'};width:40px;" title="Select tests for partial run"></th>`;
-  html += '<th>test_id</th><th>status</th>';
+  html += '<th>test_id</th><th>status</th><th class="col-time">time</th><th class="col-tokens">tokens</th>';
   metrics.forEach(m => {
     html += `<th class="metric-col" title="${esc(m)}">${esc(m)}</th>`;
   });
@@ -1181,6 +1188,37 @@ function runnerTableColspan() {
 }
 
 // Match EvaluatedTestResult to a test row: map keys are usually test names (see app/repo/snapshot.py).
+function getResultTimingAndTokens(evalRow) {
+  const res = evalRow && evalRow.result;
+  if (!res || typeof res !== 'object' || Array.isArray(res)) return { sec: null, tokens: null };
+  let tokens = null;
+  let sec = null;
+  const meta = res.additional_metadata;
+  if (meta && typeof meta === 'object') {
+    if (meta.total_tokens != null) tokens = Number(meta.total_tokens);
+    if (meta.duration != null) sec = Number(meta.duration);
+  }
+  if (tokens == null && res.token_cost != null) tokens = Number(res.token_cost);
+  if (sec == null && res.completion_time != null) sec = Number(res.completion_time);
+  return {
+    sec: sec != null && !Number.isNaN(sec) ? sec : null,
+    tokens: tokens != null && !Number.isNaN(tokens) ? tokens : null
+  };
+}
+
+function formatEvalDuration(sec) {
+  if (sec == null) return '—';
+  if (sec < 60) return (sec >= 10 ? sec.toFixed(1) : sec.toFixed(2)) + 's';
+  const m = Math.floor(sec / 60);
+  const rem = sec % 60;
+  return `${m}m ${rem < 10 ? '0' : ''}${rem.toFixed(0)}s`;
+}
+
+function formatEvalTokens(count) {
+  if (count == null) return '—';
+  return String(Math.round(count));
+}
+
 function getEvalRowForTest(modelMap, tid, testBody) {
   let row = modelMap[tid];
   if (row) return row;
@@ -1195,9 +1233,11 @@ function getEvalRowForTest(modelMap, tid, testBody) {
 
 function findMetricResultItem(evalRow, metricKey) {
   const res = evalRow && evalRow.result;
-  if (!res || !Array.isArray(res)) return null;
+  if (!res || typeof res !== 'object') return null;
+  const items = Array.isArray(res) ? res : res.metrics_data;
+  if (!Array.isArray(items)) return null;
   const key = String(metricKey);
-  return res.find(x => {
+  return items.find(x => {
     if (!x || typeof x !== 'object') return false;
     const n = x.name != null ? x.name : x.metric_name;
     if (n === metricKey || String(n) === key) return true;
@@ -1224,21 +1264,37 @@ function buildOptionalTestsField() {
   return { tests: ids };
 }
 
+function normalizeRunSummary(summary) {
+  if (!summary || typeof summary !== 'object') {
+    return { total: 0, tests_generated: 0, tests_evaluated: 0, errors: 0, current_model: null };
+  }
+  return {
+    total: summary.total ?? 0,
+    tests_generated: summary.tests_generated ?? 0,
+    tests_evaluated: summary.tests_evaluated ?? 0,
+    errors: summary.errors ?? 0,
+    current_model: summary.current_model ?? null
+  };
+}
+
 function updateRunChrome(summary, running) {
   const btn = document.getElementById('run-btn');
   const fill = document.getElementById('run-btn-fill');
   const label = document.getElementById('run-btn-label');
   const line = document.getElementById('run-summary-line');
-  if (running && summary) {
+  if (running) {
+    const sum = normalizeRunSummary(summary);
     btn.classList.add('is-running');
     label.style.display = 'flex';
-    const total = summary.total || 0;
-    const tg = summary.tests_generated || 0;
-    const tr = summary.tests_evaluated || 0;
+    const total = sum.total;
+    const tg = sum.tests_generated;
+    const tr = sum.tests_evaluated;
     const pct = total > 0 ? Math.min(100, Math.round(((tg + tr) / (2 * total)) * 100)) : 0;
     fill.style.width = pct + '%';
-    label.textContent = `${pct}% · ${summary.current_model || '…'}`;
-    line.textContent = `Errors ${summary.errors ?? 0} · generated ${tg}/${total} · evaluated ${tr}/${total}`;
+    label.textContent = total > 0 ? `${pct}% · ${sum.current_model || '…'}` : `0% · ${sum.current_model || 'starting…'}`;
+    line.textContent = total > 0
+      ? `Errors ${sum.errors} · generated ${tg}/${total} · evaluated ${tr}/${total}`
+      : 'Starting…';
   } else {
     btn.classList.remove('is-running');
     label.style.display = 'none';
@@ -1247,7 +1303,7 @@ function updateRunChrome(summary, running) {
   }
 }
 
-async function refreshSnapshotSelectOptions(forceLiveOption) {
+async function refreshSnapshotSelectOptions(forceLiveOption, reselectLatestDisk) {
   const sel = document.getElementById('snapshot-select');
   const previous = sel.value;
   let list = [];
@@ -1270,7 +1326,11 @@ async function refreshSnapshotSelectOptions(forceLiveOption) {
     sel.appendChild(opt);
   });
   const has = v => [...sel.options].some(o => o.value === v);
-  if (previous && has(previous)) sel.value = previous;
+  if (reselectLatestDisk) {
+    const disk = [...sel.options].find(o => o.value !== '__live__');
+    if (disk) sel.value = disk.value;
+    else if (sel.options.length) sel.selectedIndex = 0;
+  } else if (previous && has(previous)) sel.value = previous;
   else if (showLive && has('__live__')) sel.value = '__live__';
   else if (list.length) sel.value = list[0];
 }
@@ -1369,6 +1429,9 @@ function renderRunnerTable() {
     const rerunBtnHtml = `<button type="button" class="btn-rerun" title="${esc(rerunTitle)}" aria-label="Rerun" data-test-id="${esc(tid)}"${rerunDisabled}><span class="spin-icon">↻</span></button>`;
     const actionHtml = rowInProgress ? spin : rerunBtnHtml;
     const statusClass = evalRow.status === 'done' ? 'pass' : evalRow.status;
+    const timing = getResultTimingAndTokens(evalRow);
+    const timeCell = formatEvalDuration(timing.sec);
+    const tokenCell = formatEvalTokens(timing.tokens);
     const chk = restrict
       ? `<input type="checkbox" class="row-test-check" data-test-id="${esc(tid)}" ${checked.has(tid) ? 'checked' : ''}/>`
       : '';
@@ -1377,6 +1440,8 @@ function renderRunnerTable() {
       <td style="display:${restrict ? 'table-cell' : 'none'}">${chk}</td>
       <td>${esc(tid)}</td>
       <td><span class="status-badge ${esc(statusClass)}">${esc(evalRow.status)}</span></td>
+      <td class="col-time">${esc(timeCell)}</td>
+      <td class="col-tokens">${esc(tokenCell)}</td>
       ${metricCells}
       <td class="cell-rerun">${actionHtml}</td>`;
     tr.addEventListener('click', ev => {
@@ -1444,6 +1509,9 @@ async function runEvalPayload(explicitTests) {
     evalJustRequested = true;
     if (evalUnlockTimer) clearTimeout(evalUnlockTimer);
     evalUnlockTimer = setTimeout(() => { evalJustRequested = false; }, 8000);
+    const fill = document.getElementById('run-btn-fill');
+    fill.style.width = '0%';
+    updateRunChrome(null, true);
     await refreshSnapshotSelectOptions(true);
     document.getElementById('snapshot-select').value = '__live__';
     await loadSelectedSnapshot();
@@ -1493,7 +1561,7 @@ async function pollStatus() {
   const running = s.status === 'running';
   evalRunning = running;
 
-  if (running && s.summary) {
+  if (running) {
     evalJustRequested = false;
     if (evalUnlockTimer) {
       clearTimeout(evalUnlockTimer);

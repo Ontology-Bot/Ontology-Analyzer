@@ -47,6 +47,7 @@ class Evaluator:
         self.reset_connection(settings.subject, settings.judge)
         # load repo
         self.repo = Repository(self.path / "repo")
+        self.tracker: EvaluationTracker | None = None
         self.load_testcases(read_testcases(settings.dataset_file))
 
     def is_running(self) -> bool:
@@ -73,8 +74,8 @@ class Evaluator:
     def run_evaluation(self, task: EvaluationRequest):
         if self._is_running:
             logger.error("Already running")
-            return 
-        
+            return
+
         # validate input
         if len(task.metrics) == 0:
             raise ValueError("no metrics providen")
@@ -84,7 +85,7 @@ class Evaluator:
         # build metric list
         metrics = construct_metrics(judge_wrapper, task.metrics)
 
-        # create new snapshot 
+        # create new snapshot
         if self.snapshot is None:
             raise ValueError("No snapshot loaded")
         snapshot = Snapshot.from_task(self.snapshot, task)
@@ -93,51 +94,51 @@ class Evaluator:
             request=task,
             snapshot=snapshot
         )
-        # run (now status can be returned)
         self._is_running = True
-        # for each model
-        for model in task.models:
-            self.tracker.set_current_model(model)
-            deepeval_cases = []
-            for test_id, testcase in self.tracker.get_current_tests().items():
-                body = self.tracker.get_test_body(test_id)
-                output = testcase.output # not nice (tracker must expose readonly test body) TODO
-                error = None
-                usage = None # TODO
-                # do completions
-                if not output: 
-                    try:
-                        output, usage = self._subject.chat_text(model, body.input, task.invalidate_cache)
-                    except Exception as e:
-                        import traceback
-                        logger.error(f"Invalid response from model {model}")
-                        logger.exception(traceback.print_exc())
-                        error = str(e)
-                #
-                self.tracker.set_test_generated(test_id, output=output, error=error)
-                # create testcase if not error
-                if output and not error:
-                    deepeval_cases.append(
-                        LLMTestCase(
-                            name=test_id,
-                            input=body.input,
-                            actual_output=output,
-                            expected_output=body.expected_output,
-                            additional_metadata=usage.model_dump() if usage else None,
-                            token_cost=usage.total_tokens if usage else None,
-                            completion_time=usage.duration if usage else None
-                        ))
-            # run evaluation
-            results = evaluate(
-                deepeval_cases, 
-                list(metrics.values()), 
-                error_config=ErrorConfig(ignore_errors=True),  # allow metrics to fail
-                display_config=DisplayConfig(show_indicator=False, print_results=False)
-            )
-            # put results
-            for r in results.test_results:
-                self.tracker.set_test_result(r.name, r)
+        try:
+            # for each model
+            for model in task.models:
+                self.tracker.set_current_model(model)
+                deepeval_cases = []
+                for test_id, testcase in self.tracker.get_current_tests().items():
+                    body = self.tracker.get_test_body(test_id)
+                    output = testcase.output  # not nice (tracker must expose readonly test body) TODO
+                    error = None
+                    usage = None  # TODO
+                    # do completions
+                    if not output:
+                        try:
+                            output, usage = self._subject.chat_text(model, body.input, task.invalidate_cache)
+                        except Exception as exc:
+                            logger.exception("Invalid response from model %s", model)
+                            error = str(exc)
+                    #
+                    self.tracker.set_test_generated(test_id, output=output, error=error)
+                    # create testcase if not error
+                    if output and not error:
+                        deepeval_cases.append(
+                            LLMTestCase(
+                                name=test_id,
+                                input=body.input,
+                                actual_output=output,
+                                expected_output=body.expected_output,
+                                additional_metadata=usage.model_dump() if usage else None,
+                                token_cost=usage.total_tokens if usage else None,
+                                completion_time=usage.duration if usage else None
+                            ))
+                # run evaluation
+                results = evaluate(
+                    deepeval_cases,
+                    list(metrics.values()),
+                    error_config=ErrorConfig(ignore_errors=True),  # allow metrics to fail
+                    display_config=DisplayConfig(show_indicator=False, print_results=False)
+                )
+                # put results
+                for r in results.test_results:
+                    self.tracker.set_test_result(r.name, r)
 
-        # save snapshot
-        self.repo.commit(self.snapshot)
-        return self.tracker
+            self.repo.commit(self.tracker.snapshot)
+            self.snapshot = self.tracker.snapshot
+            return self.tracker
+        finally:
+            self._is_running = False

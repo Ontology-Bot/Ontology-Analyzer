@@ -29,12 +29,26 @@ async def serve_ui():
     ui_path = Path(__file__).parent / "static" / "index.html"
     return HTMLResponse(content=ui_path.read_text(encoding="utf-8"))
     
+def _normalize_upload_dataset(raw) -> dict:
+    """Build a dataset dict with name + tests for Snapshot.from_dataset."""
+    if isinstance(raw, list):
+        return {"name": "uploaded-dataset", "tests": raw}
+    if isinstance(raw, dict):
+        tests = raw.get("tests")
+        if not isinstance(tests, list):
+            raise HTTPException(status_code=400, detail="JSON must contain a 'tests' array")
+        name = raw.get("name") or "uploaded-dataset"
+        return {"name": name, "tests": tests}
+    raise HTTPException(status_code=400, detail="JSON must be an object or a tests array")
+
+
 @app.post("/upload-testcases/")
 async def upload(file: UploadFile):
     logger.info("received upload testcases request")
     data = json.loads((await file.read()).decode())
-    evaluator.load_testcases(data["tests"])
-    return {"status": "uploaded", "count": len(data["tests"])}
+    dataset = _normalize_upload_dataset(data)
+    evaluator.load_testcases(dataset)
+    return {"status": "uploaded", "count": len(dataset["tests"])}
 
 
 class ConfigRequest(BaseModel):
@@ -93,7 +107,22 @@ async def evaluate_models(req: EvaluationRequest, background_tasks: BackgroundTa
     
 @app.get("/status/")
 async def get_status():
-    return evaluator.tracker.model_dump()
+    """Shape expected by static UI: status, judge, progress counters."""
+    tracker = evaluator.tracker
+    if tracker is None:
+        return {"status": "idle", "judge": None, "error": None, "progress": {}}
+    summary = tracker.summary
+    progress = {
+        "current_model": summary.current_model,
+        "tests_generated": summary.tests_generated,
+        "tests_ran": summary.tests_evaluated,
+        "total": summary.total,
+        "errors": summary.errors,
+    }
+    judge = tracker.request.judge
+    if evaluator.is_running():
+        return {"status": "running", "judge": judge, "error": None, "progress": progress}
+    return {"status": "done", "judge": judge, "error": None, "progress": progress}
 
 @app.get("/metrics/")
 async def get_metrics_list():

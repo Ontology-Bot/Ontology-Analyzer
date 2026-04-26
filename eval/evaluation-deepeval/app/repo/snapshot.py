@@ -161,7 +161,7 @@ class Snapshot(BaseModel):
     @classmethod
     def from_task(cls, prev: "Snapshot", task: EvaluationRequest) -> "Snapshot":
         # if tests_to_run is None - run everything from prev
-        run_set = set(task.tests) if task.tests else set(prev.tests.keys())
+        run_set = set(task.tests) if task.tests is not None else set(prev.tests.keys())
 
         return cls(
             repo_id=prev.repo_id,
@@ -181,10 +181,11 @@ class Snapshot(BaseModel):
 
 class EvaluationTracker:
     def __init__(self, request: EvaluationRequest, snapshot: Snapshot):
-        self.summary = EvaluationSummary(total=(len(request.tests or []) * len(request.models)))
-        self.snapshot = snapshot    
+        self.snapshot = snapshot
         self.request = request
-        self.test_set = set(request.tests) if request.tests else {}
+        # When tests is None, run every test in the snapshot (same semantics as Snapshot.from_task).
+        self.test_set = set(request.tests) if request.tests is not None else set(snapshot.tests.keys())
+        self.summary = EvaluationSummary(total=len(self.test_set) * len(request.models))
         self.current_tests: dict[str, EvaluatedTestResult] | None = None
         self.failed: set[str] = set()
 

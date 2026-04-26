@@ -68,7 +68,11 @@ def main(judge: str, models: str, metrics: str, env: Path, testcases: str, verbo
         sys.exit(1)
 
     if result is None:
-        logger.error("Evaluation did not return any results.")
+        err = evaluator.last_error
+        if err:
+            logger.error("Evaluation failed: %s", err)
+        else:
+            logger.error("Evaluation did not return any results.")
         sys.exit(1)
 
     # Print summary

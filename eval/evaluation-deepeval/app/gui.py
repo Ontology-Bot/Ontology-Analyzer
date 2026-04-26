@@ -13,6 +13,7 @@ import os
 from functools import reduce
 
 import logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -107,22 +108,20 @@ async def evaluate_models(req: EvaluationRequest, background_tasks: BackgroundTa
     
 @app.get("/status/")
 async def get_status():
-    """Shape expected by static UI: status, judge, progress counters."""
-    tracker = evaluator.tracker
-    if tracker is None:
-        return {"status": "idle", "judge": None, "error": None, "progress": {}}
-    summary = tracker.summary
-    progress = {
-        "current_model": summary.current_model,
-        "tests_generated": summary.tests_generated,
-        "tests_ran": summary.tests_evaluated,
-        "total": summary.total,
-        "errors": summary.errors,
-    }
-    judge = tracker.request.judge
+    """UI: running + snapshot, idle, or error after failed background evaluation."""
     if evaluator.is_running():
-        return {"status": "running", "judge": judge, "error": None, "progress": progress}
-    return {"status": "done", "judge": judge, "error": None, "progress": progress}
+        tracker = evaluator.tracker
+        if tracker is None:
+            return {"status": "running", "summary": None, "snapshot": None, "error": None}
+        return {
+            "status": "running",
+            "summary": tracker.summary.model_dump(),
+            "snapshot": tracker.snapshot.model_dump(),
+            "error": None,
+        }
+    if evaluator.last_error:
+        return {"status": "error", "error": evaluator.last_error, "judge": None, "summary": None, "snapshot": None}
+    return {"status": "idle", "judge": None, "error": None, "summary": None, "snapshot": None}
 
 @app.get("/metrics/")
 async def get_metrics_list():

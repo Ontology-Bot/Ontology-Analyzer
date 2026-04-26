@@ -1,14 +1,16 @@
 import shelve
 import hashlib
 
+from pathlib import Path
+
 import logging
 logger = logging.getLogger(__name__)
 
 from app.llm_usage import LLMUsage
 
 class LLMCache:
-    def __init__(self, filename: str):
-        self.filename = filename
+    def __init__(self, filepath: Path):
+        self.filepath = filepath
 
     def _hash_key(self, key: str) -> str:
         # Converts the key into a unique SHA-256 string
@@ -17,12 +19,12 @@ class LLMCache:
     def set(self, key: str, output: str, usage: LLMUsage | None = None):
         logger.debug(f"caching key {key} with value {output}")
         hashed_key = self._hash_key(key)
-        with shelve.open(self.filename) as f:
+        with shelve.open(self.filepath) as f:
             f[hashed_key] = (output, usage)
 
     def get(self, key: str, default=None) -> tuple[str, LLMUsage] | None:
         hashed_key = self._hash_key(key)
-        with shelve.open(self.filename) as f:
+        with shelve.open(self.filepath) as f:
             result = f.get(hashed_key, default)
             if isinstance(result, tuple):
                 output, usage = result

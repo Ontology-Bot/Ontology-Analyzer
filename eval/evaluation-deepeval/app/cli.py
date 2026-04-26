@@ -7,8 +7,8 @@ from dotenv import load_dotenv
 import click
 
 from app.config import get_config
-from app.scheuduler import Scheduler
 from app.evaluator import Evaluator
+from app.repo.snapshot import EvaluationRequest
 
 # Configure logging
 def setup_logging(level: int | str):
@@ -50,40 +50,34 @@ def main(judge: str, models: str, metrics: str, env: Path, testcases: str, verbo
         sys.exit(1)
 
     evaluator = Evaluator(get_config(strict=True, cache=cache, dataset_file=testcases))
-    scheduler = Scheduler(evaluator)
 
     # Run evaluation for all models at once
     logger.info(f"Starting evaluation with judge '{judge}' for models: {models_list}")
 
+    result = None
     try:
-        scheduler.run_evaluation_task(judge, models_list, metrics_list)
+        result = evaluator.run_evaluation(EvaluationRequest(
+            judge=judge,
+            models=models_list,
+            metrics=metrics_list,
+            tests=None,  # Run all tests
+            invalidate_cache=not cache,
+        ))
     except Exception as e:
         logger.exception("Evaluation failed")
         sys.exit(1)
 
-    # Read results from last saved file
-    last_file = scheduler.state.get("last_result_file")
-    if not last_file or not os.path.exists(last_file):
-        logger.error("No results file found after evaluation")
+    if result is None:
+        logger.error("Evaluation did not return any results.")
         sys.exit(1)
-
-    with open(last_file) as f:
-        data = json.load(f)
-
-    results = {}
-    for model, model_results in data.get("results", {}).items():
-        tests = model_results.get("test_results", [])
-        total = len(tests)
-        passed = sum(1 for t in tests if t.get("success") is True)
-        results[model] = (passed, total)
 
     # Print summary
     logger.info("=== Evaluation Summary ===")
-    for model, (passed, total) in results.items():
-        pct = round((passed / total) * 100) if total else 0
-        logger.info(f"{model}: {pct}% ({passed}/{total})")
-
-    logger.info(f"All results saved in {os.path.dirname(last_file)}")
+    logger.info(f"Total tests: {result.summary.total}")
+    logger.info(f"Tests evaluated: {result.summary.tests_evaluated}")
+    logger.info(f"Tests generated: {result.summary.tests_generated}")   
+    logger.info(f"Tests ready: {result.summary.tests_ready}")
+    logger.info(f"Errors: {result.summary.errors}")
 
 
 if __name__ == "__main__":

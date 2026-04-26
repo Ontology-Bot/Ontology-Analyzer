@@ -2,13 +2,13 @@ from fastapi import FastAPI, UploadFile, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
-from .scheuduler import Scheduler
+from app.repo.snapshot import EvaluationRequest
+
 from .evaluator import Evaluator
 from .config import get_config
 
 import json
 import os
-import glob
 
 from functools import reduce
 
@@ -19,7 +19,6 @@ logger.setLevel(logging.INFO)
 app = FastAPI()
 
 evaluator = Evaluator(get_config(cache=True))
-scheduler = Scheduler(evaluator)
 
 # UI
 from pathlib import Path
@@ -34,7 +33,7 @@ async def serve_ui():
 async def upload(file: UploadFile):
     logger.info("received upload testcases request")
     data = json.loads((await file.read()).decode())
-    evaluator.set_testcases(data["tests"])
+    evaluator.load_testcases(data["tests"])
     return {"status": "uploaded", "count": len(data["tests"])}
 
 
@@ -80,37 +79,21 @@ async def set_config(cr: ConfigRequest):
 @app.get("/config/status/")
 async def get_config_status():
     return evaluator.get_connection_status()
-
-class EvalRequest(BaseModel):
-    judge: str
-    models: list[str]
-    metrics: list[str]
-    invalidate_cache: bool = False
  
 @app.post("/evaluate/")
-async def evaluate_models(req: EvalRequest, background_tasks: BackgroundTasks):
-    if scheduler.is_running():
+async def evaluate_models(req: EvaluationRequest, background_tasks: BackgroundTasks):
+    if evaluator.is_running():
         raise HTTPException(status_code=409, detail="Evaluation already in progress")
 
-    scheduler.state["judge"] = req.judge
-    scheduler.state["models"] = req.models
-    scheduler.state["metrics"] = req.metrics
-    scheduler.state["invalidate_cache"] = req.invalidate_cache
-    scheduler.state["last_result_file"] = None
-
     background_tasks.add_task(
-        scheduler.run_evaluation_task,
-        req.judge,
-        req.models,
-        req.metrics,
-        req.invalidate_cache
+        evaluator.run_evaluation, req
     )
 
     return {"status": "started"}
     
 @app.get("/status/")
 async def get_status():
-    return scheduler.state
+    return evaluator.tracker.model_dump()
 
 @app.get("/metrics/")
 async def get_metrics_list():
@@ -118,15 +101,19 @@ async def get_metrics_list():
 
 @app.get("/results/")
 async def list_results():
-    return scheduler.list_results()
+    return evaluator.repo.list()
  
 @app.post("/results/clear")
 async def clear_results():
-    return scheduler.clear_results()
- 
-@app.get("/results/{filename}")
-async def get_result(filename: str):
-    result = scheduler.get_result(filename) 
+    return evaluator.repo.drop()
+
+@app.post("/results/clear/{timestamp}")
+async def clear_results_at(timestamp: str):
+    return evaluator.repo.drop_at_timestamp(timestamp)
+
+@app.get("/results/{timestamp}")
+async def get_result(timestamp: str):
+    result = evaluator.repo.get_at_timestamp(timestamp) 
     if not result:
         raise HTTPException(status_code=404, detail="Not found")
     return result

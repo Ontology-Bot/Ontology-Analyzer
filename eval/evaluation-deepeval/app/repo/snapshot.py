@@ -2,12 +2,20 @@ from datetime import datetime
 from typing import Literal
 from pydantic import BaseModel
 
+from collections import defaultdict
+from copy import deepcopy
+
 from deepeval.evaluate.types import EvaluationResult, TestResult
+
+import logging
+logger = logging.getLogger(__name__)
+
 
 class EvaluationSummary(BaseModel):
     errors: int = 0
-    tests_ran: int = 0
+    tests_evaluated: int = 0
     tests_generated: int = 0
+    tests_ready: int = 0
     total: int = 0
     current_model: str | None = None
 
@@ -15,9 +23,25 @@ class EvaluationRequest(BaseModel):
     judge: str
     models: list[str]
     metrics: list[str]
+    tests: list[str] | None = None
     invalidate_cache: bool = False
 
+    @classmethod
+    def empty(cls):
+        return cls(judge="", models=[], metrics=[])
+
 class EvaluatedTestResult(BaseModel):
+    '''
+    Small Proxy for model x test 
+    '''
+    test_id: str
+    status: Literal["cached", "pending", "generated", "done", "error"]
+    output: str | None = None
+    result: list[TestResult] | None = None
+    error: str | None = None
+
+
+class TestCase(BaseModel):
     '''
     Test inside json has:
     {
@@ -25,18 +49,16 @@ class EvaluatedTestResult(BaseModel):
       "input": "<question>",
       "expected_output": "<answer>",
       "label": "<dataset label>",
-      "output": "[opt] <model output>",
     }
     '''
-    test_id: str
-    status: Literal["cached", "pending","generating","evaluating", "done", "error"]
-    body: dict
-    result: list[TestResult] | None = None
-    error: str | None = None
+    name: str
+    input: str
+    expected_output: str
+    label: str
+    idx: int | None = None
 
     def get_key(self) -> str:
-        return f"{self.body.get('input', '')}|{self.body.get('expected_output', '')}"
-
+        return f"{self.input}|{self.expected_output}"
 
 
 class Snapshot(BaseModel):
@@ -44,29 +66,9 @@ class Snapshot(BaseModel):
     '''
     repo_id: str
     timestamp: datetime
-    tests: dict[str, EvaluatedTestResult]
-
-    @classmethod
-    def from_dataset(cls, dataset: dict):
-        repo_id = dataset.get("name", "default")
-        tests = dataset.get("tests", [])
-        r_tests: dict[str, EvaluatedTestResult] = {}
-        for t in tests:
-            test_id = t.get("name", None)
-            if not test_id:
-                raise ValueError("Each test must have a 'name' field as unique identifier")
-            r_tests[test_id] = EvaluatedTestResult(
-                test_id=test_id,
-                status="cached",
-                body=t,
-                result=None,
-                error=None
-            )
-        return cls(
-            repo_id=repo_id,
-            timestamp=datetime.now(),
-            tests=r_tests
-        )
+    task: EvaluationRequest # immutable
+    tests: dict[str, TestCase] # test case bodies, immutable
+    models: dict[str, dict[str, EvaluatedTestResult]] # results per model
     
     @classmethod
     def same(cls, s1: "Snapshot", s2: "Snapshot") -> bool:
@@ -77,105 +79,173 @@ class Snapshot(BaseModel):
         old_tests = {t.get_key() for t in s1.tests.values()}
         new_tests = {t.get_key() for t in s2.tests.values()}
         return old_tests == new_tests
+    
+    @staticmethod
+    def _build_model_results(
+        prev: "Snapshot | None", 
+        target_models: list[str], 
+        current_tests: dict[str, TestCase],
+        ids_to_run: set[str]
+    ) -> dict[str, dict[str, EvaluatedTestResult]]:
+        """
+        generic logic to carry over results or initialize new ones.
+        """
+        output = {}
+        prev_models = prev.models if prev else {}
+
+        for model_id in target_models:
+            model_results = {}
+            existing_results = prev_models.get(model_id, {})
+
+            for t_id, test in current_tests.items():
+                is_pending = t_id in ids_to_run
+                
+                if not is_pending and t_id in existing_results:
+                    # carry over existing result
+                    model_results[t_id] = existing_results[t_id].model_copy()
+                else:
+                    # create stub for execution
+                    model_results[t_id] = EvaluatedTestResult(
+                        test_id=test.name, # carry over new test name
+                        status="pending" if is_pending else "cached"
+                    )
+            output[model_id] = model_results
+            
+        return output
 
     @classmethod
-    def merge(cls, prev: "Snapshot", new: "Snapshot"):
-        if prev.repo_id != new.repo_id:
-            raise ValueError("Cannot merge snapshots with different repo_id")
-        old_tests = {t.get_key(): t for t in prev.tests.values()}
-        merged_tests: dict[str, EvaluatedTestResult] = {}
-        for test_id, test in new.tests.items():
-            old_test = old_tests.get(test.get_key())
-            if old_test is None:
-                # new test
-                merged_tests[test_id] = test
-                continue
-            # core of the test is the same -> update body
-            old_test.test_id = test_id # update test_id to new one
-            old_test.body = test.body # update body to new one
-            merged_tests[test_id] = old_test
+    def from_dataset(cls, prev: "Snapshot | None", task: EvaluationRequest | None, dataset: dict) -> "Snapshot":
+        repo_id = dataset.get("name")
+        if not repo_id:
+            raise ValueError("Invalid dataset - no name provided")
+        if prev and prev.repo_id != repo_id:
+            raise ValueError("Repo ID mismatch")
+        # Set task - try carry over from prev, otherwise use empty task
+        if task is None:
+            if prev:
+                task = prev.task
+            else:
+                logger.warning("No task provided for new dataset and no previous snapshot found - using empty task")
+                task = EvaluationRequest.empty()
+        # init from dataset 
+        merged_tests: dict[str, TestCase] = {}
+        content_to_new: dict[str, TestCase] = {}
+        
+        for i, t in enumerate(dataset.get("tests", [])):
+            test_obj = TestCase.model_validate({**t, "idx": i}) # validate schema
+            
+            if test_obj.name in merged_tests: # catch duplicates
+                raise ValueError(f"Duplicate test name found in dataset: {test_obj.name}")
+            
+            merged_tests[test_obj.name] = test_obj # save by name
+            content_to_new[test_obj.get_key()] = test_obj # and by key (to detect renaming)
+
+        if prev:
+            for old_test in prev.tests.values():
+                match = content_to_new.get(old_test.get_key())
+                if match and match.name != old_test.name:
+                    # pop new test & store it under old name (to be able to resolve later)
+                    merged_tests[old_test.name] = merged_tests.pop(match.name)
+
+        # 4. which tests to copy
+        ids_to_run = set(merged_tests.keys()) 
+        
+        return cls(
+            repo_id=repo_id,
+            timestamp=datetime.now(),
+            task=task,
+            tests=merged_tests,
+            models=cls._build_model_results(prev, task.models, merged_tests, ids_to_run)
+        )
+
+    @classmethod
+    def from_task(cls, prev: "Snapshot", task: EvaluationRequest) -> "Snapshot":
+        # if tests_to_run is None - run everything from prev
+        run_set = set(task.tests) if task.tests else set(prev.tests.keys())
+
         return cls(
             repo_id=prev.repo_id,
             timestamp=datetime.now(),
-            tests=merged_tests
+            task=task,
+            tests=prev.tests,
+            models=cls._build_model_results(prev, task.models, prev.tests, run_set)
         )
-    
-
-    @classmethod
-    def from_testlist(cls, prev: "Snapshot", tests: list[str] | None):
-        if tests is None:
-            # full copy
-            return cls(
-                repo_id=prev.repo_id,
-                timestamp=datetime.now(),
-                tests=prev.tests
-            )
-        # copy from prev, if in tests -> "pending", else "cached"
-        tests_to_run = set(tests)
-        r_tests = {}
-        for test_id, test in prev.tests.items():
-            to_run = test_id in tests_to_run
-            status = "pending" if to_run else "cached"
-            r_tests[test_id] = EvaluatedTestResult(
-                test_id=test_id,
-                status=status,
-                body=test.body,
-                result=test.result if not to_run else None,
-                error=test.error if not to_run else None
-            )
-        return cls(
-            repo_id=prev.repo_id,
-            timestamp=datetime.now(),
-            tests=r_tests
-        )
-    
-    def to_json_model(self):
-        return self.model_dump(mode="json")
     
     def to_dataset(self):
         return {
             "name": self.repo_id,
-            "tests": [t.body for t in self.tests.values()]
+            "tests": self.tests
         }
         
 
 
 class EvaluationTracker:
-    def __init__(self, request: EvaluationRequest, snapshot: Snapshot, tests: list[str] | None):
-        self.summary = EvaluationSummary(total=(len(tests or []) * len(request.models)))
+    def __init__(self, request: EvaluationRequest, snapshot: Snapshot):
+        self.summary = EvaluationSummary(total=(len(request.tests or []) * len(request.models)))
         self.snapshot = snapshot    
         self.request = request
+        self.test_set = set(request.tests) if request.tests else {}
+        self.current_tests: dict[str, EvaluatedTestResult] | None = None
+        self.failed: set[str] = set()
+
+    def model_dump(self):
+        return {
+            "summary": self.summary.model_dump(),
+            "snapshot": self.snapshot.model_dump(),
+        }
 
     def set_current_model(self, model: str):
         self.summary.current_model = model
+        self.current_tests = {k: v for k, v in self.snapshot.models[self.summary.current_model].items() if k in self.test_set}
 
-    def _get_test_throw(self, test_id: str) -> EvaluatedTestResult:
+    def get_current_tests(self) -> dict[str, EvaluatedTestResult]:
+        if self.current_tests is None:
+            raise ValueError("Required to run test without a model set")
+        return self.current_tests
+    
+    def get_test_body(self, test_id: str) -> TestCase:
         if test_id not in self.snapshot.tests:
             raise ValueError(f"Test with id '{test_id}' not found in snapshot")
         return self.snapshot.tests[test_id]
 
-    def set_test_status(self, test_id: str, status: Literal["pending","generating","evaluating"], body: dict | None = None):
-        test = self._get_test_throw(test_id)
-        test.status = status
-        if body is not None:
-            test.body = {**test.body, **body}
+    def _get_test_throw(self, test_id: str) -> EvaluatedTestResult:
+        if self.current_tests is None:
+            raise ValueError("Required to run test without a model set")
+        if test_id not in self.snapshot.tests:
+            raise ValueError(f"Test with id '{test_id}' not found in snapshot")
+        return self.current_tests[test_id]
 
-    def set_test_result(self, test_id: str, result: EvaluationResult | str):
-        test = self._get_test_throw(test_id)
-        # handle errors
-        error: str | None = result.test_results .get("error", None)
-        cnt = 1 if error else 0
-        for md in result.get("metrics_data", []):
-            if md.get("error", None):
-                error = error or md.get("error")
-                cnt += 1
-        error = f"{error}{f' ({cnt-1} more)' if cnt > 1 else ''}" if error else None
-        #
-        test.result = result.test_results
-        if error:
-            test.status = "error"
-            test.error = error
-        else:
-            test.status = "done"
-            test.error = None
+    def set_test_generated(self, test_id: str, output: str | None, error: str | None):
+        tracker = self._get_test_throw(test_id)
+        if output is None and error is None:
+            logger.warning(f"Setting test result for '{test_id}' without result or error - error asumed")
+            tracker.status = "error"
+            self.summary.errors += 1
+        if error is not None:
+            tracker.status = "error"
+            tracker.error = error
+            self.summary.errors += 1
+        if output is not None:
+            tracker.status = "generated"
+            self.summary.tests_generated += 1
+            
+        logger.info(f"\t{tracker.status} at '{test_id}' for model '{self.summary.current_model}' ({self.summary.tests_generated}/{self.summary.total})")
+
+    def set_test_result(self, test_id: str, result: TestResult | None = None, error: str | None = None):
+        tracker = self._get_test_throw(test_id)
+        if result and result.metrics_data:
+            for md in result.metrics_data:
+                error = error or md.error
+        if error is not None:
+            tracker.status = "error"
+            self.summary.errors += 1
+        if result:
+            tracker.status = "done"
+            self.summary.tests_evaluated += 1
+        if result is None and error is None:
+            logger.warning(f"Setting test result for '{test_id}' without result or error - error asumed")
+            tracker.status = "error"
+            self.summary.errors += 1
+
+        logger.info(f"\t{tracker.status} at '{test_id}' for model '{self.summary.current_model}' ({self.summary.tests_evaluated}/{self.summary.total})")
 

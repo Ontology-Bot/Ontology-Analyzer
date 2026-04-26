@@ -34,27 +34,9 @@ class Repository:
             self.repo_id = meta.get("repo_id", None)
         else:
             logger.info("Empty repository was loaded.")
-            
-
-    def load_dataset(self, path: Path):
-        # create snapshot from dataset file
-        snapshot = Snapshot.from_dataset(read_json(path))
-        # check repo_id
-        if self.repo_id is None: # first time loading dataset, set repo_id
-            logger.info(f"Setting repository id to '{snapshot.repo_id}'")
-            self.repo_id = snapshot.repo_id
-            write_json(self.meta_path, {"repo_id": self.repo_id})
-        if self.repo_id != snapshot.repo_id:
-            # TODO 
-            raise ValueError(f"Dataset repo_id '{snapshot.repo_id}' does not match repository meta repo_id '{self.repo_id}'. Choose another dataset or repository path.")
-        # load head if exists
-        head = self.get_at_head()
-        if head is not None:
-            logger.info("Merging dataset with head.")
-            # merge snapshot with head
-            snapshot = Snapshot.merge(head, snapshot)
-        # save snapshot and update head
-        self._save_result(snapshot, update_head=True)
+        
+    def is_empty(self):
+        return self.repo_id is None or self.get_at_head() is None
 
     def _save_result(self, snapshot: Snapshot, update_head: bool = True):
         # save snapshot to new folder with timestamp
@@ -67,7 +49,6 @@ class Repository:
         if update_head:
             logger.info(f"Updated head {timestamp}")
             write_json(self.head_path, {"timestamp": timestamp})
-
 
     def list(self):
         # get all folder names
@@ -90,10 +71,38 @@ class Repository:
             return None
         return Snapshot.model_validate(read_json(path))
 
-    #def begin_evaluation(self, tests: list[str] | None, judge: str, model: str, metrics: list[str], invalidate_cache: bool = False) -> Snapshot:
-        # create new snapshot with status "running"
-        #return Snapshot.from_testlist(self.get_at_head(), tests, judge, model, metrics, invalidate_cache)
+    def drop(self):
+        # delete all folders and files
+        for item in self.path.iterdir():
+            if item.is_dir():
+                for subitem in item.iterdir():
+                    subitem.unlink()
+                item.rmdir()
+            else:
+                item.unlink()
+        self.repo_id = None
+        logger.info("Repository cleared.")
+
+    def drop_at_timestamp(self, timestamp: str):
+        # delete folder for specific timestamp
+        folder_path = self.path / timestamp
+        if folder_path.exists():
+            for subitem in folder_path.iterdir():
+                subitem.unlink()
+            folder_path.rmdir()
+            logger.info(f"Deleted results for timestamp '{timestamp}'")
+        else:
+            logger.info("Invalid timestamp.")
 
     def commit(self, snapshot: Snapshot):
+        # check repo_id
+        if self.repo_id is None: # first time loading dataset, set repo_id
+            logger.info(f"Initial commit. Setting repository id to '{snapshot.repo_id}'")
+            self.repo_id = snapshot.repo_id
+            write_json(self.meta_path, {"repo_id": self.repo_id})
+        if self.repo_id != snapshot.repo_id:
+            # TODO 
+            raise ValueError(f"Dataset repo_id '{snapshot.repo_id}' does not match repository meta repo_id '{self.repo_id}'. Choose another dataset or repository path.")
+
         # save snapshot to new folder with timestamp
         self._save_result(snapshot, update_head=True)

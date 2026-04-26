@@ -5,9 +5,9 @@ from typing import Any
 
 # https://deepeval.com/docs/evaluation-test-cases
 
-def load_testcases(path="data/golden-dataset.json") -> list[dict[str, Any]]:
+def read_testcases(path="data/golden-dataset.json") -> dict:
     if Path(path).exists():
         with open(path) as f:
-            return json.load(f)["tests"]
+            return json.load(f)
     else:
-        return []
+        return {}

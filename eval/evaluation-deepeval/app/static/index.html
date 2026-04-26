@@ -49,9 +49,25 @@
   /* ─── Layout ─── */
   #app { display: flex; flex-direction: column; min-height: 100vh; }
 
+  .global-error {
+    display: none;
+    margin: 0 36px 12px;
+    padding: 10px 14px;
+    background: var(--red-dim);
+    border: 1px solid var(--red);
+    border-radius: var(--radius);
+    color: #ffb4a8;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .global-error.visible { display: block; }
+
   header {
     border-bottom: 1px solid var(--border);
-    padding: 0 32px;
+    padding: 0 36px;
     height: 52px;
     display: flex;
     align-items: center;
@@ -73,20 +89,101 @@
 
   .header-sep { flex: 1; }
 
-  .page { display: none; flex: 1; padding: 28px 32px; max-width: 960px; margin: 0 auto; width: 100%; }
+  .page { display: none; flex: 1; padding: 28px 36px; max-width: 1480px; margin: 0 auto; width: 100%; }
   .page.active { display: block; }
 
-  /* ─── 3-column layout ─── */
-  .main-grid {
+  .main-split {
     display: grid;
-    grid-template-columns: 340px 1fr;
-    grid-template-rows: auto auto;
+    grid-template-columns: minmax(300px, 360px) 1fr;
     gap: 18px;
     align-items: start;
   }
 
-  .col-left { display: flex; flex-direction: column; gap: 18px; grid-row: 1 / 3; }
-  .col-right { display: flex; flex-direction: column; gap: 18px; }
+  .col-left { display: flex; flex-direction: column; gap: 18px; }
+  .col-main { min-width: 0; }
+
+  /* Run control: same box becomes progress bar while eval runs */
+  .btn-run-wrap { position: relative; width: 100%; min-height: 44px; border-radius: 6px; overflow: hidden; }
+  .btn-run { position: relative; z-index: 2; width: 100%; transition: color 0.15s; }
+  .btn-run.is-running,
+  .btn-run.is-running:disabled { background: transparent; color: transparent; cursor: wait; opacity: 1; }
+  .btn-run-fill {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 0%; z-index: 1;
+    background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+    transition: width 0.35s ease;
+    pointer-events: none;
+  }
+  .btn-run-label {
+    position: absolute; left: 0; right: 0; top: 0; bottom: 0; z-index: 3;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 13px; font-weight: 500; color: #fff;
+    pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,0.45);
+  }
+  .run-summary-line {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    margin-top: 10px; min-height: 18px; line-height: 1.45;
+  }
+
+  .runner-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .runner-toolbar-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .snapshot-select {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
+    color: var(--text-bright); font-family: var(--mono); font-size: 12px;
+    padding: 7px 10px; min-width: 220px; max-width: 100%;
+  }
+  .toggle-label {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim); cursor: pointer; user-select: none;
+  }
+  .toggle-label input { accent-color: var(--accent); }
+
+  .runner-table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 6px; max-height: 52vh; }
+  .runner-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+  .runner-table th, .runner-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; }
+  .runner-table th {
+    background: var(--surface2); color: var(--text-dim); font-size: 10px; letter-spacing: 0.6px;
+    text-transform: uppercase; position: sticky; top: 0; z-index: 1;
+  }
+  .runner-table tr { cursor: pointer; transition: background 0.1s; }
+  .runner-table tr:hover { background: var(--surface2); }
+  .runner-table tr.selected-row { background: var(--accent-dim); }
+
+  .status-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.4px; border: 1px solid var(--border-bright);
+  }
+  .status-badge.cached { color: var(--text-dim); }
+  .status-badge.pending { color: var(--yellow); border-color: var(--yellow); }
+  .status-badge.generated { color: var(--accent); border-color: var(--accent); }
+  .status-badge.pass,
+  .status-badge.done { color: var(--green); border-color: var(--green); }
+  .status-badge.fail { color: var(--red); border-color: var(--red); }
+  .status-badge.error { color: var(--red); border-color: var(--red); }
+
+  .metric-cell { display: flex; flex-wrap: wrap; gap: 4px; }
+  .mini-metric {
+    font-size: 10px; padding: 1px 6px; border-radius: 3px;
+    background: var(--surface3); border: 1px solid var(--border-bright); color: var(--text);
+  }
+
+  .cell-rerun { width: 96px; text-align: right; }
+  .btn-rerun {
+    font-family: var(--mono); font-size: 15px; line-height: 1;
+    min-width: 34px; padding: 6px 8px; border-radius: 4px;
+    border: 1px solid var(--border-bright); background: var(--surface2); color: var(--text); cursor: pointer;
+  }
+  .btn-rerun:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn-rerun:disabled { opacity: 0.45; cursor: not-allowed; }
+  /* Same ↻ glyph as .spin-icon, but no rotation on the clickable rerun control */
+  .btn-rerun .spin-icon { animation: none; }
+  th.metric-col { font-size: 9px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+  .spin-icon { display: inline-block; animation: spin 0.9s linear infinite; font-size: 16px; line-height: 1; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+  .json-panel-wrap { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
+  .json-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .json-panel-title { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+  #runner-json-viewer { max-height: 42vh; }
 
   /* ─── Cards ─── */
   .card {
@@ -508,9 +605,8 @@
   .detail-actions { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; }
 
   /* ─── Responsive ─── */
-  @media (max-width: 700px) {
-    .main-grid { grid-template-columns: 1fr; }
-    .col-left { grid-row: auto; }
+  @media (max-width: 900px) {
+    .main-split { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -522,185 +618,182 @@
     <button class="btn btn-ghost btn-sm" id="refresh-results-btn">↻ refresh results</button>
   </header>
 
+  <div id="global-error" class="global-error" role="alert"></div>
+
   <!-- ── MAIN PAGE ── -->
   <div class="page active" id="page-main">
-    <div class="main-grid">
+    <div class="main-split">
+        <div class="col-left">
 
-      <!-- ── LEFT COLUMN: Configuration ── -->
-      <div class="col-left">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">Configuration</div>
-          </div>
-          <div class="card-body">
-
-            <!-- Eval Config -->
-            <div class="section">
-              <div class="section-label">Evaluation Config</div>
-              <div class="field">
-                <label class="field-label">Judge Model</label>
-                <input type="text" id="judge-input" placeholder="e.g. gpt-4o" />
-              </div>
-              <div class="field">
-                <label class="field-label">Subject Model(s) <span style="opacity:.5">(Enter/comma)</span></label>
-                <div class="tags-container" id="tags-container">
-                  <input class="tag-input" id="model-tag-input" placeholder="e.g. gpt-4o-mini" />
-                </div>
-              </div>
-              <div class="field">
-                <label class="field-label">Metrics</label>
-                <div class="metrics-list" id="metrics-list">
-                  <div class="metric-item"><span style="color:var(--text-dim);font-family:var(--mono);font-size:11px;">Loading metrics…</span></div>
-                </div>
-              </div>
+          <!-- Run above configuration (left column) -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Run Evaluation</div>
+              <label class="toggle-label" style="margin:0;">
+                <input type="checkbox" id="invalidate-cache" />
+                Invalidate model cache
+              </label>
             </div>
-
-            <!-- API Settings -->
-            <div class="section">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-                <span class="section-label" style="margin-bottom:0;">API Settings</span>
-                <div style="flex:1;"></div>
-                <button class="icon-btn" id="save-all-btn" title="Save all API settings" style="padding:3px 8px;font-size:13px;">💾</button>
-                <button class="icon-btn" id="refresh-conn-btn" title="Check connectivity" style="padding:3px 8px;font-size:13px;">↻</button>
+            <div class="card-body">
+              <div class="btn-run-wrap" id="run-btn-wrap">
+                <div class="btn-run-fill" id="run-btn-fill"></div>
+                <div class="btn-run-label" id="run-btn-label" style="display:none;"></div>
+                <button type="button" class="btn btn-run" id="run-btn">▶ Run Evaluation</button>
               </div>
-              <div class="security-note">
-                <b>⚠</b> Keys stored in <code>localStorage</code> (browser only). Avoid on shared machines.
-              </div>
+              <div class="hint err" id="run-hint"></div>
+              <div class="run-summary-line" id="run-summary-line"></div>
+            </div>
+          </div>
 
-              <!-- Subject -->
-              <div style="margin-bottom:14px;">
-                <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;">
-                  <span style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:0.8px;text-transform:uppercase;">Subject</span>
-                  <span class="status-ring unknown" id="conn-subject" title="Subject API status"><span class="dot-inner"></span></span>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Configuration</div>
+            </div>
+            <div class="card-body">
+
+              <!-- Eval Config -->
+              <div class="section">
+                <div class="section-label">Evaluation Config</div>
+                <div class="field">
+                  <label class="field-label">Judge Model</label>
+                  <input type="text" id="judge-input" placeholder="e.g. gpt-4o" />
                 </div>
                 <div class="field">
-                  <label class="field-label">Provider</label>
-                  <input type="text" id="subject-provider" placeholder="openai" />
+                  <label class="field-label">Subject Model(s) <span style="opacity:.5">(Enter/comma)</span></label>
+                  <div class="tags-container" id="tags-container">
+                    <input class="tag-input" id="model-tag-input" placeholder="e.g. gpt-4o-mini" />
+                  </div>
                 </div>
                 <div class="field">
-                  <label class="field-label">Base URL</label>
-                  <input type="text" id="subject-url" placeholder="https://api.openai.com/v1" />
-                </div>
-                <div class="field">
-                  <label class="field-label">API Key</label>
-                  <div class="input-row">
-                    <input type="password" id="subject-key" placeholder="sk-..." />
-                    <button class="icon-btn" data-target="subject-key" title="Show/hide">👁</button>
+                  <label class="field-label">Metrics</label>
+                  <div class="metrics-list" id="metrics-list">
+                    <div class="metric-item"><span style="color:var(--text-dim);font-family:var(--mono);font-size:11px;">Loading metrics…</span></div>
                   </div>
                 </div>
               </div>
 
-              <!-- Judge -->
-              <div>
-                <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;">
-                  <span style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:0.8px;text-transform:uppercase;">Judge</span>
-                  <span class="status-ring unknown" id="conn-judge" title="Judge API status"><span class="dot-inner"></span></span>
+              <!-- API Settings -->
+              <div class="section">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                  <span class="section-label" style="margin-bottom:0;">API Settings</span>
+                  <div style="flex:1;"></div>
+                  <button class="icon-btn" id="save-all-btn" title="Save all API settings" style="padding:3px 8px;font-size:13px;">💾</button>
+                  <button class="icon-btn" id="refresh-conn-btn" title="Check connectivity" style="padding:3px 8px;font-size:13px;">↻</button>
                 </div>
-                <div class="field">
-                  <label class="field-label">Provider</label>
-                  <input type="text" id="judge-provider" placeholder="openai" />
+                <div class="security-note">
+                  <b>⚠</b> Keys stored in <code>localStorage</code> (browser only). Avoid on shared machines.
                 </div>
-                <div class="field">
-                  <label class="field-label">Base URL</label>
-                  <input type="text" id="judge-url" placeholder="https://api.openai.com/v1" />
-                </div>
-                <div class="field">
-                  <label class="field-label">API Key</label>
-                  <div class="input-row">
-                    <input type="password" id="judge-key" placeholder="sk-..." />
-                    <button class="icon-btn" data-target="judge-key" title="Show/hide">👁</button>
+
+                <!-- Subject -->
+                <div style="margin-bottom:14px;">
+                  <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;">
+                    <span style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:0.8px;text-transform:uppercase;">Subject</span>
+                    <span class="status-ring unknown" id="conn-subject" title="Subject API status"><span class="dot-inner"></span></span>
+                  </div>
+                  <div class="field">
+                    <label class="field-label">Provider</label>
+                    <input type="text" id="subject-provider" placeholder="openai" />
+                  </div>
+                  <div class="field">
+                    <label class="field-label">Base URL</label>
+                    <input type="text" id="subject-url" placeholder="https://api.openai.com/v1" />
+                  </div>
+                  <div class="field">
+                    <label class="field-label">API Key</label>
+                    <div class="input-row">
+                      <input type="password" id="subject-key" placeholder="sk-..." />
+                      <button class="icon-btn" data-target="subject-key" title="Show/hide">👁</button>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div class="hint info" id="save-api-hint" style="margin-top:6px;"></div>
-            </div>
 
-            <!-- Upload Testcases -->
-            <div class="section">
-              <div class="section-label">Testcases</div>
-              <div class="upload-drop" id="upload-drop">
-                <input type="file" id="testcase-file" accept=".json" />
-                <div class="upload-drop-icon">📂</div>
-                <div class="upload-drop-label">Drop JSON or <b>click to browse</b></div>
+                <!-- Judge -->
+                <div>
+                  <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;">
+                    <span style="font-family:var(--mono);font-size:10px;color:var(--accent);letter-spacing:0.8px;text-transform:uppercase;">Judge</span>
+                    <span class="status-ring unknown" id="conn-judge" title="Judge API status"><span class="dot-inner"></span></span>
+                  </div>
+                  <div class="field">
+                    <label class="field-label">Provider</label>
+                    <input type="text" id="judge-provider" placeholder="openai" />
+                  </div>
+                  <div class="field">
+                    <label class="field-label">Base URL</label>
+                    <input type="text" id="judge-url" placeholder="https://api.openai.com/v1" />
+                  </div>
+                  <div class="field">
+                    <label class="field-label">API Key</label>
+                    <div class="input-row">
+                      <input type="password" id="judge-key" placeholder="sk-..." />
+                      <button class="icon-btn" data-target="judge-key" title="Show/hide">👁</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="hint info" id="save-api-hint" style="margin-top:6px;"></div>
               </div>
-              <div class="hint info" id="upload-hint" style="margin-top:8px;"></div>
-              <div style="margin-top:8px;">
-                <button class="btn btn-ghost btn-sm" id="upload-btn">↑ Upload</button>
-              </div>
-            </div>
 
-          </div>
-        </div>
-      </div>
+              <!-- Upload Testcases -->
+              <div class="section">
+                <div class="section-label">Testcases</div>
+                <div class="upload-drop" id="upload-drop">
+                  <input type="file" id="testcase-file" accept=".json" />
+                  <div class="upload-drop-icon">📂</div>
+                  <div class="upload-drop-label">Drop JSON or <b>click to browse</b></div>
+                </div>
+                <div class="hint info" id="upload-hint" style="margin-top:8px;"></div>
+                <div style="margin-top:8px;">
+                  <button class="btn btn-ghost btn-sm" id="upload-btn">↑ Upload</button>
+                </div>
+              </div>
 
-      <!-- ── RIGHT COLUMN ── -->
-      <div class="col-right">
-
-        <!-- Run Panel -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">Run Evaluation</div>
-            <input id="invalidate-cache" type="checkbox" value="${m}"><span>Invalidate model cache</span>
-          </div>
-          <div class="card-body">
-            <button class="btn btn-run" id="run-btn">▶ Run Evaluation</button>
-            <div class="hint err" id="run-hint"></div>
-            <div style="margin-top:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-              <span class="status-pill idle" id="status-pill">
-                <span class="status-dot" id="status-dot"></span>
-                <span id="status-label">Idle</span>
-              </span>
-              <span class="run-detail" id="status-detail"></span>
-            </div>
-            <div class="progress-grid" id="progress-grid" style="display:none;">
-              <div class="prog-item">
-                <div class="prog-label">Tests Generated</div>
-                <div class="prog-value accent" id="prog-generated">0</div>
-              </div>
-              <div class="prog-item">
-                <div class="prog-label">Tests Ran</div>
-                <div class="prog-value" id="prog-ran">0</div>
-              </div>
-              <div class="prog-item">
-                <div class="prog-label">Completed</div>
-                <div class="prog-value green" id="prog-total">0</div>
-              </div>
-              <div class="prog-item">
-                <div class="prog-label">Errors</div>
-                <div class="prog-value red" id="prog-errors">0</div>
-              </div>
             </div>
           </div>
+
         </div>
 
-        <!-- Results -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">Results</div>
-            <button class="btn btn-danger btn-sm" id="clear-results-btn" title="Delete all results">✕ clear all</button>
-          </div>
-          <div class="card-body" style="padding:12px;">
-            <div id="results-list"><div class="empty-state">No results yet</div></div>
+        <!-- Jenkins-style runner: snapshot.models, timestamp from repo list -->
+        <div class="col-main">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Test results</div>
+              <button class="btn btn-danger btn-sm" id="clear-results-btn" title="Delete all saved snapshots">✕ clear all</button>
+            </div>
+            <div class="card-body">
+              <!-- API: GET /status/ exposes snapshot JSON only while the server reports running; after that use GET /results/{timestamp}. The UI does not change the FastAPI contract. -->
+              <div class="runner-toolbar">
+                <div class="runner-toolbar-left">
+                  <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;">Snapshot</span>
+                  <select class="snapshot-select" id="snapshot-select"></select>
+                  <button type="button" class="btn btn-ghost btn-sm" id="reload-snapshot-btn" title="Reload list / snapshot">↻</button>
+                </div>
+                <label class="toggle-label">
+                  <input type="checkbox" id="restrict-tests-toggle" />
+                  Run only checked tests
+                </label>
+              </div>
+              <div class="tab-bar" id="model-tabs"></div>
+              <div class="runner-table-wrap">
+                <table class="runner-table" id="runner-table">
+                  <thead>
+                    <tr id="runner-thead-row"></tr>
+                  </thead>
+                  <tbody id="runner-tbody"></tbody>
+                </table>
+              </div>
+              <div class="json-panel-wrap">
+                <div class="json-panel-head">
+                  <span class="json-panel-title" id="json-panel-title">Select a row for JSON, or “Full snapshot”.</span>
+                  <div class="btn-row">
+                    <button type="button" class="btn btn-ghost btn-sm" id="json-full-snapshot-btn">Full snapshot</button>
+                    <button type="button" class="btn btn-ghost btn-sm" id="json-download-btn">↓ Download JSON</button>
+                  </div>
+                </div>
+                <div class="json-viewer" id="runner-json-viewer"></div>
+              </div>
+            </div>
           </div>
         </div>
-
-      </div>
     </div>
-  </div>
-
-  <!-- ── DETAIL PAGE ── -->
-  <div class="page" id="page-detail">
-    <div class="detail-actions">
-      <button class="btn btn-ghost" id="back-btn">← Back</button>
-      <div style="flex:1;"></div>
-      <button class="btn btn-ghost btn-sm" id="download-btn">↓ Download JSON</button>
-    </div>
-    <div class="detail-header">
-      <h2 id="detail-title">Result</h2>
-      <div class="meta" id="detail-meta"></div>
-    </div>
-    <div class="tab-bar" id="detail-tabs"></div>
-    <div class="json-viewer" id="json-viewer"></div>
   </div>
 
 </div>
@@ -716,7 +809,8 @@ const LS = {
   JUDGE_URL: 'deval_judge_url',
   JUDGE_KEY: 'deval_judge_key',
   SUBJECT_PROVIDER: 'deval_subject_provider',
-  JUDGE_PROVIDER: 'deval_subject_provider',
+  JUDGE_PROVIDER: 'deval_judge_provider',
+  TESTS_CHECKED: 'deval_tests_checked_',
 };
 
 // ─── State ──────────────────────────────────────────────────────────────────
@@ -724,28 +818,66 @@ let models = [];
 let selectedMetrics = [];
 let availableMetrics = [];
 let pollTimer = null;
-let currentDetailFilename = null;
-let currentDetailData = null;
+let evalRunning = false;
+let wasEvalRunning = false;
+let liveSnapshotObj = null;
+let currentSnapshotObj = null;
+let currentSnapshotTimestamp = null;
+let activeModelTab = null;
+let selectedRowTestId = null;
+let currentJsonPayload = null;
+let evalJustRequested = false;
+let evalUnlockTimer = null;
+let runMetricNames = [];
 
 // ─── Init ────────────────────────────────────────────────────────────────────
+function hideGlobalError() {
+  const el = document.getElementById('global-error');
+  el.classList.remove('visible');
+  el.textContent = '';
+}
+
+function showGlobalError(msg) {
+  const el = document.getElementById('global-error');
+  el.textContent = msg || 'Evaluation failed';
+  el.classList.add('visible');
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   restoreCache();
   loadMetrics();
-  loadResults();
+  refreshSnapshotSelectOptions().then(() => loadSelectedSnapshot());
   pollStatus();
 
-  // Run btn
-  document.getElementById('run-btn').addEventListener('click', runEval);
+  document.getElementById('run-btn').addEventListener('click', () => runEvalPayload(null));
 
-  // Back / refresh
-  document.getElementById('back-btn').addEventListener('click', showMain);
-  document.getElementById('refresh-results-btn').addEventListener('click', loadResults);
+  document.getElementById('refresh-results-btn').addEventListener('click', () => {
+    refreshSnapshotSelectOptions().then(() => loadSelectedSnapshot());
+  });
+  document.getElementById('reload-snapshot-btn').addEventListener('click', () => {
+    refreshSnapshotSelectOptions().then(() => loadSelectedSnapshot());
+  });
+  document.getElementById('snapshot-select').addEventListener('change', () => loadSelectedSnapshot());
 
-  // Judge model cache
+  document.getElementById('restrict-tests-toggle').addEventListener('change', () => {
+    syncRestrictColumnVisibility();
+    renderRunnerTable();
+  });
+
+  document.getElementById('json-full-snapshot-btn').addEventListener('click', () => {
+    if (!currentSnapshotObj) return;
+    currentJsonPayload = currentSnapshotObj;
+    document.getElementById('json-panel-title').textContent = 'Full snapshot JSON';
+    const viewer = document.getElementById('runner-json-viewer');
+    viewer.innerHTML = renderJson(currentSnapshotObj);
+    attachToggleListeners(viewer);
+  });
+
+  document.getElementById('json-download-btn').addEventListener('click', downloadCurrentJson);
+
   document.getElementById('judge-input').addEventListener('input', () =>
     localStorage.setItem(LS.JUDGE_MODEL, document.getElementById('judge-input').value));
 
-  // Model tags
   const tagInput = document.getElementById('model-tag-input');
   tagInput.addEventListener('keydown', e => {
     if (e.key === 'Enter' || e.key === ',') {
@@ -758,16 +890,10 @@ window.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('tags-container').addEventListener('click', () => tagInput.focus());
 
-  // Save API config (unified)
   document.getElementById('save-all-btn').addEventListener('click', saveAllApiConfig);
-
-  // Connectivity
   document.getElementById('refresh-conn-btn').addEventListener('click', checkConnectivity);
-
-  // Upload
   setupUpload();
 
-  // Show/hide passwords
   document.querySelectorAll('.icon-btn[data-target]').forEach(btn => {
     btn.addEventListener('click', () => {
       const inp = document.getElementById(btn.dataset.target);
@@ -776,17 +902,13 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Download
-  document.getElementById('download-btn').addEventListener('click', downloadCurrentResult);
-
-  // Clear results
   document.getElementById('clear-results-btn').addEventListener('click', async () => {
     if (!confirm('Delete ALL results? This cannot be undone.')) return;
     await fetch('/results/clear', { method: 'POST' });
-    loadResults();
+    await refreshSnapshotSelectOptions();
+    await loadSelectedSnapshot();
   });
 
-  // Load initial connectivity
   checkConnectivity();
 });
 
@@ -926,6 +1048,7 @@ async function doUpload() {
     showHint('upload-hint', `✓ ${d.count} testcase${d.count !== 1 ? 's' : ''} uploaded`, 'ok');
     document.querySelector('.upload-drop-label').innerHTML = 'Drop JSON or <b>click to browse</b>';
     fileInput.value = '';
+    refreshSnapshotSelectOptions().then(() => loadSelectedSnapshot());
   } catch(e) {
     showHint('upload-hint', 'Upload failed: ' + e.message, 'err');
   } finally {
@@ -992,15 +1115,316 @@ function renderTags() {
   });
 }
 
-// ─── Run Eval ─────────────────────────────────────────────────────────────────
-async function runEval() {
+// GET /status/ only exposes snapshot JSON while evaluator.is_running(); after idle use GET /results/{ts}.
+
+function formatTimestamp(ts) {
+  if (!ts || ts === '__live__') return ts === '__live__' ? 'Live' : '—';
+  const iso = String(ts).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]} ${iso[4]}:${iso[5]}:${iso[6]}`;
+  const m = String(ts).match(/^r?_?(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}`;
+  return ts;
+}
+
+function testsCheckedStorageKey() {
+  const rid = currentSnapshotObj && currentSnapshotObj.repo_id;
+  return rid ? LS.TESTS_CHECKED + rid : null;
+}
+
+function loadCheckedSet() {
+  const key = testsCheckedStorageKey();
+  if (!key) return new Set();
+  try {
+    const arr = JSON.parse(localStorage.getItem(key) || '[]');
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch (e) {
+    return new Set();
+  }
+}
+
+function saveCheckedSet(set) {
+  const key = testsCheckedStorageKey();
+  if (key) localStorage.setItem(key, JSON.stringify([...set]));
+}
+
+function syncRestrictColumnVisibility() {
+  const on = document.getElementById('restrict-tests-toggle').checked;
+  const th = document.getElementById('th-select');
+  if (th) th.style.display = on ? 'table-cell' : 'none';
+}
+
+function getTaskMetricNames() {
+  const task = currentSnapshotObj && currentSnapshotObj.task;
+  if (task && Array.isArray(task.metrics) && task.metrics.length) return task.metrics;
+  if (runMetricNames && runMetricNames.length) return runMetricNames;
+  return [];
+}
+
+function rebuildRunnerTableHead() {
+  const tr = document.getElementById('runner-thead-row');
+  if (!tr) return;
+  const restrict = document.getElementById('restrict-tests-toggle').checked;
+  const metrics = getTaskMetricNames();
+  let html = '';
+  html += `<th id="th-select" style="display:${restrict ? 'table-cell' : 'none'};width:40px;" title="Select tests for partial run"></th>`;
+  html += '<th>test_id</th><th>status</th>';
+  metrics.forEach(m => {
+    html += `<th class="metric-col" title="${esc(m)}">${esc(m)}</th>`;
+  });
+  html += '<th class="cell-rerun"></th>';
+  tr.innerHTML = html;
+}
+
+function runnerTableColspan() {
+  const tr = document.getElementById('runner-thead-row');
+  return tr && tr.children.length ? tr.children.length : 5;
+}
+
+// Match EvaluatedTestResult to a test row: map keys are usually test names (see app/repo/snapshot.py).
+function getEvalRowForTest(modelMap, tid, testBody) {
+  let row = modelMap[tid];
+  if (row) return row;
+  const nm = testBody && testBody.name;
+  if (nm != null && modelMap[String(nm)] != null) return modelMap[String(nm)];
+  for (const key of Object.keys(modelMap)) {
+    const candidate = modelMap[key];
+    if (candidate && String(candidate.test_id) === String(tid)) return candidate;
+  }
+  return null;
+}
+
+function findMetricResultItem(evalRow, metricKey) {
+  const res = evalRow && evalRow.result;
+  if (!res || !Array.isArray(res)) return null;
+  const key = String(metricKey);
+  return res.find(x => {
+    if (!x || typeof x !== 'object') return false;
+    const n = x.name != null ? x.name : x.metric_name;
+    if (n === metricKey || String(n) === key) return true;
+    return typeof n === 'string' && n.toLowerCase() === key.toLowerCase();
+  }) || null;
+}
+
+function metricCellHtml(evalRow, metricKey) {
+  const item = findMetricResultItem(evalRow, metricKey);
+  if (!item) return '<span style="color:var(--text-dim)">—</span>';
+  const err = item.error || (item.metrics_data && item.metrics_data[0] && item.metrics_data[0].error);
+  if (err) return `<span style="color:var(--red);font-size:11px">${esc(String(err))}</span>`;
+  const score = item.score !== undefined ? item.score : item.success;
+  return `<span class="mini-metric">${esc(String(score))}</span>`;
+}
+
+function buildOptionalTestsField() {
+  if (!document.getElementById('restrict-tests-toggle').checked) return {};
+  const ids = [];
+  document.querySelectorAll('#runner-tbody input.row-test-check:checked').forEach(inp => {
+    ids.push(inp.getAttribute('data-test-id'));
+  });
+  if (ids.length === 0) return {};
+  return { tests: ids };
+}
+
+function updateRunChrome(summary, running) {
+  const btn = document.getElementById('run-btn');
+  const fill = document.getElementById('run-btn-fill');
+  const label = document.getElementById('run-btn-label');
+  const line = document.getElementById('run-summary-line');
+  if (running && summary) {
+    btn.classList.add('is-running');
+    label.style.display = 'flex';
+    const total = summary.total || 0;
+    const tg = summary.tests_generated || 0;
+    const tr = summary.tests_evaluated || 0;
+    const pct = total > 0 ? Math.min(100, Math.round(((tg + tr) / (2 * total)) * 100)) : 0;
+    fill.style.width = pct + '%';
+    label.textContent = `${pct}% · ${summary.current_model || '…'}`;
+    line.textContent = `Errors ${summary.errors ?? 0} · generated ${tg}/${total} · evaluated ${tr}/${total}`;
+  } else {
+    btn.classList.remove('is-running');
+    label.style.display = 'none';
+    fill.style.width = '0%';
+    line.textContent = '';
+  }
+}
+
+async function refreshSnapshotSelectOptions(forceLiveOption) {
+  const sel = document.getElementById('snapshot-select');
+  const previous = sel.value;
+  let list = [];
+  try {
+    const r = await fetch('/results/');
+    if (r.ok) list = await r.json();
+  } catch (e) {}
+  sel.innerHTML = '';
+  const showLive = forceLiveOption || evalRunning;
+  if (showLive) {
+    const opt = document.createElement('option');
+    opt.value = '__live__';
+    opt.textContent = 'Live (current run)';
+    sel.appendChild(opt);
+  }
+  list.forEach(ts => {
+    const opt = document.createElement('option');
+    opt.value = ts;
+    opt.textContent = formatTimestamp(ts);
+    sel.appendChild(opt);
+  });
+  const has = v => [...sel.options].some(o => o.value === v);
+  if (previous && has(previous)) sel.value = previous;
+  else if (showLive && has('__live__')) sel.value = '__live__';
+  else if (list.length) sel.value = list[0];
+}
+
+async function loadSelectedSnapshot() {
+  const sel = document.getElementById('snapshot-select');
+  const val = sel.value;
+  if (!val) {
+    currentSnapshotObj = null;
+    currentSnapshotTimestamp = null;
+    rebuildRunnerTableHead();
+    renderModelTabs();
+    renderRunnerTable();
+    return;
+  }
+  if (val === '__live__') {
+    currentSnapshotTimestamp = '__live__';
+    if (!liveSnapshotObj) {
+      rebuildRunnerTableHead();
+      const tbody = document.getElementById('runner-tbody');
+      const nc = runnerTableColspan();
+      tbody.innerHTML = `<tr><td colspan="${nc}" style="border:none;padding:18px;font-family:var(--mono);font-size:11px;color:var(--text-dim);">Waiting for live snapshot from <code>/status/</code>…</td></tr>`;
+      return;
+    }
+    currentSnapshotObj = liveSnapshotObj;
+  } else {
+    try {
+      const r = await fetch('/results/' + encodeURIComponent(val));
+      if (!r.ok) {
+        currentSnapshotObj = null;
+        renderModelTabs();
+        renderRunnerTable();
+        return;
+      }
+      currentSnapshotObj = await r.json();
+      currentSnapshotTimestamp = val;
+    } catch (e) {
+      currentSnapshotObj = null;
+    }
+  }
+  const modelKeys = Object.keys((currentSnapshotObj && currentSnapshotObj.models) || {});
+  if (activeModelTab && modelKeys.includes(activeModelTab)) {
+    /* keep selected model tab across live updates */
+  } else {
+    activeModelTab = modelKeys[0] || null;
+  }
+  rebuildRunnerTableHead();
+  syncRestrictColumnVisibility();
+  renderModelTabs();
+  renderRunnerTable();
+}
+
+function renderModelTabs() {
+  const bar = document.getElementById('model-tabs');
+  bar.innerHTML = '';
+  const keys = Object.keys((currentSnapshotObj && currentSnapshotObj.models) || {});
+  keys.forEach((m, i) => {
+    const tab = document.createElement('div');
+    tab.className = 'tab' + (m === activeModelTab ? ' active' : '');
+    tab.textContent = m;
+    tab.addEventListener('click', () => {
+      activeModelTab = m;
+      bar.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      renderRunnerTable();
+    });
+    bar.appendChild(tab);
+  });
+}
+
+function renderRunnerTable() {
+  const tbody = document.getElementById('runner-tbody');
+  tbody.innerHTML = '';
+  rebuildRunnerTableHead();
+  syncRestrictColumnVisibility();
+  const ncol = runnerTableColspan();
+  if (!currentSnapshotObj || !activeModelTab) {
+    tbody.innerHTML = `<tr><td colspan="${ncol}" class="empty-state" style="border:none;padding:20px;">No snapshot loaded</td></tr>`;
+    return;
+  }
+  const metrics = getTaskMetricNames();
+  const tests = currentSnapshotObj.tests || {};
+  const modelMap = (currentSnapshotObj.models && currentSnapshotObj.models[activeModelTab]) || {};
+  const restrict = document.getElementById('restrict-tests-toggle').checked;
+  const checked = loadCheckedSet();
+  const ids = Object.keys(tests).sort();
+  ids.forEach(tid => {
+    const testBody = tests[tid];
+    const evalRow = getEvalRowForTest(modelMap, tid, testBody) || { status: 'pending', test_id: tid };
+    const tr = document.createElement('tr');
+    tr.className = selectedRowTestId === tid ? 'selected-row' : '';
+    const spin = '<span class="spin-icon" title="in progress">↻</span>';
+    const rowInProgress = evalRow.status === 'pending' || evalRow.status === 'generated';
+    const rerunDisabled = evalRunning ? ' disabled' : '';
+    const rerunTitle = evalRunning ? 'Wait for current run to finish' : 'Rerun this test';
+    const rerunBtnHtml = `<button type="button" class="btn-rerun" title="${esc(rerunTitle)}" aria-label="Rerun" data-test-id="${esc(tid)}"${rerunDisabled}><span class="spin-icon">↻</span></button>`;
+    const actionHtml = rowInProgress ? spin : rerunBtnHtml;
+    const statusClass = evalRow.status === 'done' ? 'pass' : evalRow.status;
+    const chk = restrict
+      ? `<input type="checkbox" class="row-test-check" data-test-id="${esc(tid)}" ${checked.has(tid) ? 'checked' : ''}/>`
+      : '';
+    const metricCells = metrics.map(m => `<td>${metricCellHtml(evalRow, m)}</td>`).join('');
+    tr.innerHTML = `
+      <td style="display:${restrict ? 'table-cell' : 'none'}">${chk}</td>
+      <td>${esc(tid)}</td>
+      <td><span class="status-badge ${esc(statusClass)}">${esc(evalRow.status)}</span></td>
+      ${metricCells}
+      <td class="cell-rerun">${actionHtml}</td>`;
+    tr.addEventListener('click', ev => {
+      if (ev.target.closest('input,button')) return;
+      selectedRowTestId = tid;
+      [...tbody.querySelectorAll('tr')].forEach(r => r.classList.remove('selected-row'));
+      tr.classList.add('selected-row');
+      const payload = { test_id: tid, testcase: testBody, evaluated: evalRow };
+      currentJsonPayload = payload;
+      document.getElementById('json-panel-title').textContent = `Row: ${tid} (${activeModelTab})`;
+      const viewer = document.getElementById('runner-json-viewer');
+      viewer.innerHTML = renderJson(payload);
+      attachToggleListeners(viewer);
+    });
+    const rerunBtn = tr.querySelector('.btn-rerun');
+    if (rerunBtn) {
+      rerunBtn.addEventListener('click', ev => {
+        ev.stopPropagation();
+        runEvalPayload([tid]);
+      });
+    }
+    const cb = tr.querySelector('input.row-test-check');
+    if (cb) {
+      cb.addEventListener('click', ev => ev.stopPropagation());
+      cb.addEventListener('change', () => {
+        const next = loadCheckedSet();
+        if (cb.checked) next.add(tid);
+        else next.delete(tid);
+        saveCheckedSet(next);
+      });
+    }
+    tbody.appendChild(tr);
+  });
+}
+
+async function runEvalPayload(explicitTests) {
   const judge = document.getElementById('judge-input').value.trim();
   const hint = document.getElementById('run-hint');
   hint.textContent = '';
+  hideGlobalError();
   if (!judge) { hint.textContent = 'Judge model is required'; return; }
   if (!models.length) { hint.textContent = 'Add at least one subject model'; return; }
 
+  runMetricNames = [...selectedMetrics];
   const invalidateCache = document.getElementById('invalidate-cache').checked;
+  const payload = { judge, models, metrics: selectedMetrics, invalidate_cache: invalidateCache };
+  if (explicitTests && explicitTests.length) payload.tests = explicitTests;
+  else Object.assign(payload, buildOptionalTestsField());
 
   const btn = document.getElementById('run-btn');
   btn.disabled = true;
@@ -1008,185 +1432,115 @@ async function runEval() {
     const r = await fetch('/evaluate/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ judge, models, metrics: selectedMetrics, invalidate_cache: invalidateCache })
+      body: JSON.stringify(payload)
     });
     if (!r.ok) {
-      const e = await r.json();
+      const e = await r.json().catch(() => ({}));
       hint.textContent = e.detail || 'Error starting run';
-      btn.disabled = false; return;
+      evalJustRequested = false;
+      btn.disabled = false;
+      return;
     }
+    evalJustRequested = true;
+    if (evalUnlockTimer) clearTimeout(evalUnlockTimer);
+    evalUnlockTimer = setTimeout(() => { evalJustRequested = false; }, 8000);
+    await refreshSnapshotSelectOptions(true);
+    document.getElementById('snapshot-select').value = '__live__';
+    await loadSelectedSnapshot();
     startPolling();
-  } catch(e) {
+    pollStatus();
+  } catch (e) {
     hint.textContent = 'Request failed: ' + e.message;
+    evalJustRequested = false;
     btn.disabled = false;
   }
 }
 
-// ─── Status polling ───────────────────────────────────────────────────────────
 function startPolling() {
   if (pollTimer) return;
-  pollTimer = setInterval(pollStatus, 1500);
+  pollTimer = setInterval(pollStatus, 1200);
 }
+
 function stopPolling() {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
 }
 
 async function pollStatus() {
+  let s;
   try {
     const r = await fetch('/status/');
-    const s = await r.json();
-    updateStatusUI(s);
-    if (s.status === 'running') startPolling();
-    else {
-      stopPolling();
-      document.getElementById('run-btn').disabled = false;
-      if (s.status === 'done') loadResults();
-    }
-  } catch(e) {}
-}
-
-function updateStatusUI(s) {
-  const pill = document.getElementById('status-pill');
-  const dot = document.getElementById('status-dot');
-  const label = document.getElementById('status-label');
-  const detail = document.getElementById('status-detail');
-  const grid = document.getElementById('progress-grid');
-
-  const map = { idle: 'Idle', running: 'Running…', done: 'Completed', error: 'Error' };
-  const classes = { idle: 'idle', running: 'running', done: 'done', error: 'error' };
-  pill.className = `status-pill ${classes[s.status] || 'idle'}`;
-  dot.className = `status-dot${s.status === 'running' ? ' pulse' : ''}`;
-  label.textContent = map[s.status] || s.status;
-
-  if (s.status === 'running') {
-    const p = s.progress || {};
-    detail.textContent = p.current_model ? `model: ${p.current_model}` : '';
-    grid.style.display = 'grid';
-    const tg = p.tests_generated ?? 0;
-    const tr = p.tests_ran ?? 0;
-    document.getElementById('prog-generated').textContent = tg;
-    document.getElementById('prog-ran').textContent = tr;
-    document.getElementById('prog-total').textContent = `${p.total ? Math.round((tr+tg) / (2*p.total)*100) : 0}%`;
-    document.getElementById('prog-errors').textContent = `${p.errors ?? 0}`;
-  } else {
-    detail.textContent = s.status === 'error' ? (s.error || '') : (s.judge ? `judge: ${s.judge}` : '');
-    grid.style.display = 'none';
-  }
-}
-
-// ─── Results list ─────────────────────────────────────────────────────────────
-async function loadResults() {
-  try {
-    const r = await fetch('/results/');
-    renderResultsList(await r.json());
-  } catch(e) {}
-}
-
-function renderResultsList(list) {
-  const el = document.getElementById('results-list');
-  if (!list.length) { el.innerHTML = '<div class="empty-state">No results yet</div>'; return; }
-  el.innerHTML = '';
-  list.forEach(item => {
-    const row = document.createElement('div');
-    row.className = 'result-row';
-    const ts = formatTimestamp(item.timestamp);
-    const metricsHtml = (item.metrics || []).map(m => `<span class="metric-pill">${esc(m)}</span>`).join('') || '<span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">none</span>';
-    const statsHtml = Object.entries(item.pass_rates || {}).map(([m, s], idx) => {
-      const pct = s && s[1] > 0 ? Math.round(s[0] / s[1] * 100) : 0;
-      const errors = s && s[2] || 0;
-      const cls = pct >= 80 ? 'good' : pct >= 50 ? 'mid' : 'bad';
-      return `<div class="model-stat">
-        <span class="ms-name" style="min-width:6px;">subject #${idx+1}:</span>
-        <span class="model-chip">${esc(m)}</span>
-        <span class="pass-badge ${cls}">${pct}%</span>
-        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">${s[0]}/${s[1]} passed (${errors} errors)</span>
-      </div>`;
-    }).join('');
-
-    row.innerHTML = `
-      <div class="result-meta" style="flex:1;">
-        <span class="result-ts" style="min-width:0;margin-bottom:8px;">${esc(ts)}</span>
-        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px;">
-          <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">judge:</span>
-          <span class="model-chip">${esc(item.judge || '—')}</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px;flex-wrap:wrap;">
-          <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:.3px;">metrics:</span>
-          ${metricsHtml}
-        </div>
-        <div class="result-stats">${statsHtml}</div>
-      </div>
-      <div class="result-arrow">›</div>`;
-    row.addEventListener('click', () => openResult(item.filename, ts, item));
-    el.appendChild(row);
-  });
-}
-
-function formatTimestamp(ts) {
-  if (!ts) return '—';
-  const m = ts.match(/^r?_?(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}`;
-  return ts;
-}
-
-// ─── Detail page ──────────────────────────────────────────────────────────────
-async function openResult(filename, ts, meta) {
-  const r = await fetch(`/results/${encodeURIComponent(filename)}`);
-  const data = await r.json();
-  currentDetailFilename = filename;
-  currentDetailData = data;
-
-  document.getElementById('detail-title').textContent = `Run — ${ts}`;
-  document.getElementById('detail-meta').textContent =
-    `judge: ${meta.judge || '—'}   |   models: ${(meta.models || []).join(', ')}   |   metrics: ${(meta.metrics || []).join(', ')}`;
-
-  showDetail();
-
-  const results = data.results || {};
-  const modelKeys = Object.keys(results);
-  const tabBar = document.getElementById('detail-tabs');
-  const viewer = document.getElementById('json-viewer');
-
-  if (!modelKeys.length) {
-    tabBar.innerHTML = '';
-    viewer.innerHTML = renderJson(data);
-    attachToggleListeners(viewer);
+    s = await r.json();
+  } catch (e) {
     return;
   }
 
-  tabBar.innerHTML = '';
-  modelKeys.forEach((m, i) => {
-    const tab = document.createElement('div');
-    tab.className = `tab${i === 0 ? ' active' : ''}`;
-    tab.textContent = m;
-    tab.addEventListener('click', () => {
-      tabBar.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      viewer.innerHTML = renderJson(results[m]);
-      attachToggleListeners(viewer);
-    });
-    tabBar.appendChild(tab);
-  });
-  viewer.innerHTML = renderJson(results[modelKeys[0]]);
-  attachToggleListeners(viewer);
+  if (s.status === 'error') {
+    showGlobalError(s.error || 'Evaluation failed');
+    evalJustRequested = false;
+    if (evalUnlockTimer) {
+      clearTimeout(evalUnlockTimer);
+      evalUnlockTimer = null;
+    }
+    stopPolling();
+    updateRunChrome(null, false);
+  } else {
+    hideGlobalError();
+  }
+
+  const running = s.status === 'running';
+  evalRunning = running;
+
+  if (running && s.summary) {
+    evalJustRequested = false;
+    if (evalUnlockTimer) {
+      clearTimeout(evalUnlockTimer);
+      evalUnlockTimer = null;
+    }
+    liveSnapshotObj = s.snapshot || liveSnapshotObj;
+    updateRunChrome(s.summary, true);
+    if (document.getElementById('snapshot-select').value === '__live__') {
+      currentSnapshotObj = liveSnapshotObj;
+      renderModelTabs();
+      renderRunnerTable();
+    }
+  } else if (s.status !== 'error') {
+    updateRunChrome(null, false);
+  }
+
+  if (wasEvalRunning && !running) {
+    evalJustRequested = false;
+    if (evalUnlockTimer) {
+      clearTimeout(evalUnlockTimer);
+      evalUnlockTimer = null;
+    }
+    stopPolling();
+    liveSnapshotObj = null;
+    await refreshSnapshotSelectOptions(false);
+    const sel = document.getElementById('snapshot-select');
+    if (sel.options.length) sel.selectedIndex = 0;
+    await loadSelectedSnapshot();
+  }
+  wasEvalRunning = running;
+
+  if (running) startPolling();
+
+  const runBtn = document.getElementById('run-btn');
+  runBtn.disabled = s.status === 'error' ? false : (running || evalJustRequested);
 }
 
-function downloadCurrentResult() {
-  if (!currentDetailData) return;
-  const blob = new Blob([JSON.stringify(currentDetailData, null, 2)], { type: 'application/json' });
+function downloadCurrentJson() {
+  if (!currentJsonPayload && !currentSnapshotObj) return;
+  const data = currentJsonPayload || currentSnapshotObj;
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = currentDetailFilename || 'result.json';
+  a.download = (currentSnapshotTimestamp && currentSnapshotTimestamp !== '__live__')
+    ? currentSnapshotTimestamp.replace(/[:.]/g, '-') + '.json'
+    : 'snapshot.json';
   a.click();
-}
-
-function showMain() {
-  document.getElementById('page-main').classList.add('active');
-  document.getElementById('page-detail').classList.remove('active');
-}
-function showDetail() {
-  document.getElementById('page-main').classList.remove('active');
-  document.getElementById('page-detail').classList.add('active');
 }
 
 // ─── JSON renderer ────────────────────────────────────────────────────────────

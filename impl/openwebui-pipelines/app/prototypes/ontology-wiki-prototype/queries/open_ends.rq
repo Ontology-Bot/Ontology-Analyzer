@@ -1,0 +1,12 @@
+PREFIX aml: <https://w3id.org/hsu-aut/AutomationML#>
+
+SELECT ?node (COUNT(?in) AS ?inDegree) (COUNT(?out) AS ?outDegree)
+WHERE {
+  FILTER(CONTAINS(STR(?node), "Conveyor"))
+  OPTIONAL { ?in aml:isLinkedTo ?node . }
+  OPTIONAL { ?node aml:isLinkedTo ?out . }
+}
+GROUP BY ?node
+HAVING (COUNT(?in) = 0 || COUNT(?out) = 0)
+ORDER BY ?inDegree ?outDegree
+LIMIT 200

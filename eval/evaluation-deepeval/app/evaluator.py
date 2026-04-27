@@ -49,7 +49,8 @@ class Evaluator:
         self.repo = Repository(self.path / "repo")
         self.tracker: EvaluationTracker | None = None
         self.last_error: str | None = None
-        self.load_testcases(read_testcases(self.path / "golden-dataset.json"))
+        if self.repo.is_empty():
+            self.load_testcases(read_testcases(self.path / "golden-dataset.json"))
 
     def is_running(self) -> bool:
         return self._is_running
@@ -114,7 +115,9 @@ class Evaluator:
                         except Exception as exc:
                             logger.exception("Invalid response from model %s", model)
                             error = str(exc)
-                    #
+                    else:
+                        logger.info(f"Using preset output for model {model} test '{test_id}'")
+                    # update tracker
                     self.tracker.set_test_generated(test_id, output=output, error=error)
                     # create testcase if not error
                     if output and not error:

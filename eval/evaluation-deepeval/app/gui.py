@@ -127,6 +127,14 @@ async def get_status():
 async def get_metrics_list():
     return evaluator.get_metric_names()
 
+# @app.get("/models/")
+# async def get_models_list():
+#     return evaluator.snapshot.task.models
+
+@app.post("/models/")
+async def add_models_list(models: list[str]):
+    evaluator.add_models(models)
+
 @app.get("/results/")
 async def list_results():
     return evaluator.repo.list()

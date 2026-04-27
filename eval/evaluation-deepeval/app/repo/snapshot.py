@@ -83,35 +83,28 @@ class Snapshot(BaseModel):
     @staticmethod
     def _build_model_results(
         prev: "Snapshot | None", 
-        target_models: list[str], # requested models for display
+        target_models: set[str], # models to run
+        ids_to_run: set[str], # tests to run
         current_tests: dict[str, TestCase], # full list of tests
-        ids_to_run: set[str] # tests 
     ) -> dict[str, dict[str, EvaluatedTestResult]]:
         """
         generic logic to carry over results or initialize new ones.
         """
-        output = {}
-        prev_models = prev.models if prev else {}
+        output = deepcopy(prev.models) if prev else {} # build on top of existing results
 
         for model_id in target_models: # for each model
-            model_results = {} 
-            existing_results = prev_models.get(model_id, {})
+            results = output.setdefault(model_id, {})
 
             for t_id, test in current_tests.items(): # each test
                 is_pending = t_id in ids_to_run
-                
-                existing = existing_results.get(t_id)
-                if not is_pending and existing:
-                    # carry over existing result
-                    model_results[t_id] = existing.model_copy()
-                else:
+                existing = results.get(t_id)
+                if is_pending or not existing: # cant carry over old result
                     # create stub for execution
-                    model_results[t_id] = EvaluatedTestResult(
+                    results[t_id] = EvaluatedTestResult(
                         test_id=test.name, # carry over new test name
                         status="pending" if is_pending else "cached", 
                         output=existing.output if existing else None # carry over output if any
                     )
-            output[model_id] = model_results
             
         return output
 
@@ -129,7 +122,7 @@ class Snapshot(BaseModel):
             else:
                 logger.warning("No task provided for new dataset and no previous snapshot found - using empty task")
                 task = EvaluationRequest.empty()
-        # init from dataset 
+        # init tests from dataset 
         merged_tests: dict[str, TestCase] = {}
         content_to_new: dict[str, TestCase] = {}
         
@@ -148,9 +141,9 @@ class Snapshot(BaseModel):
                 if match and match.name != old_test.name:
                     # pop new test & store it under old name (to be able to resolve later)
                     merged_tests[old_test.name] = merged_tests.pop(match.name)
-        
+
         # initialize base model results
-        models_data = cls._build_model_results(prev, task.models, merged_tests, set()) # mark all as cached
+        models_data = cls._build_model_results(prev, set(task.models), set(), merged_tests) # mark all as cached
 
         # inject model results
         model = dataset.get("model")
@@ -179,18 +172,19 @@ class Snapshot(BaseModel):
             tests=merged_tests,
             models=models_data
         )
-
+    
     @classmethod
     def from_task(cls, prev: "Snapshot", task: EvaluationRequest) -> "Snapshot":
         # if tests_to_run is None - run everything from prev
-        run_set = set(task.tests) if task.tests is not None else set(prev.tests.keys())
+        run_set_tests = set(task.tests) if task.tests is not None else set(prev.tests.keys())
+        run_set_models = set(task.models) if task.models else set(prev.models.keys())
 
         return cls(
             repo_id=prev.repo_id,
             timestamp=datetime.now(),
             task=task,
             tests=prev.tests,
-            models=cls._build_model_results(prev, task.models, prev.tests, run_set)
+            models=cls._build_model_results(prev, run_set_models, run_set_tests, prev.tests)
         )
     
     def to_dataset(self):

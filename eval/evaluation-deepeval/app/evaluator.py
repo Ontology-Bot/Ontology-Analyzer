@@ -72,6 +72,10 @@ class Evaluator:
     def load_testcases(self, testcases: dict, task: EvaluationRequest | None = None):
         self.snapshot = Snapshot.from_dataset(self.repo.get_at_head(), task, testcases)
         self.repo.commit(self.snapshot)
+
+    def add_models(self, models: list[str]):
+        self.snapshot = Snapshot.from_task(self.snapshot, self.snapshot.task.model_copy(update={"models": models, "tests": None})) # do not update any tests
+        self.repo.commit(self.snapshot)
     
     def run_evaluation(self, task: EvaluationRequest):
         if self._is_running:

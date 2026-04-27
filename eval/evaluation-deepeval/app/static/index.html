@@ -126,6 +126,7 @@
 
   .runner-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
   .runner-toolbar-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .runner-toolbar-toggles { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
   .snapshot-select {
     background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
     color: var(--text-bright); font-family: var(--mono); font-size: 12px;
@@ -660,10 +661,12 @@
                   <input type="text" id="judge-input" placeholder="e.g. gpt-4o" />
                 </div>
                 <div class="field">
-                  <label class="field-label">Subject Model(s) <span style="opacity:.5">(Enter/comma)</span></label>
-                  <div class="tags-container" id="tags-container">
-                    <input class="tag-input" id="model-tag-input" placeholder="e.g. gpt-4o-mini" />
+                  <label class="field-label">Add subject model for evaluation</label>
+                  <div class="input-row">
+                    <input type="text" id="model-add-input" placeholder="e.g. gpt-4o-mini" />
+                    <button type="button" class="btn btn-ghost btn-sm" id="model-add-btn" title="POST merged list to /models/">+ Add</button>
                   </div>
+                  <div class="hint info" id="add-model-hint" style="margin-top:6px;"></div>
                 </div>
                 <div class="field">
                   <label class="field-label">Metrics</label>
@@ -767,10 +770,16 @@
                   <select class="snapshot-select" id="snapshot-select"></select>
                   <button type="button" class="btn btn-ghost btn-sm" id="reload-snapshot-btn" title="Reload list / snapshot">↻</button>
                 </div>
-                <label class="toggle-label">
-                  <input type="checkbox" id="restrict-tests-toggle" />
-                  Run only checked tests
-                </label>
+                <div class="runner-toolbar-toggles">
+                  <label class="toggle-label">
+                    <input type="checkbox" id="restrict-tests-toggle" />
+                    Run only checked tests
+                  </label>
+                  <label class="toggle-label">
+                    <input type="checkbox" id="run-all-models-toggle" />
+                    Run for all models
+                  </label>
+                </div>
               </div>
               <div class="tab-bar" id="model-tabs"></div>
               <div class="runner-table-wrap">
@@ -803,7 +812,6 @@
 // ─── Storage keys ───────────────────────────────────────────────────────────
 const LS = {
   JUDGE_MODEL: 'deval_judge',
-  MODELS: 'deval_models',
   METRICS: 'deval_metrics',
   SUBJECT_URL: 'deval_subject_url',
   SUBJECT_KEY: 'deval_subject_key',
@@ -815,7 +823,6 @@ const LS = {
 };
 
 // ─── State ──────────────────────────────────────────────────────────────────
-let models = [];
 let selectedMetrics = [];
 let availableMetrics = [];
 let pollTimer = null;
@@ -884,17 +891,13 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('judge-input').addEventListener('input', () =>
     localStorage.setItem(LS.JUDGE_MODEL, document.getElementById('judge-input').value));
 
-  const tagInput = document.getElementById('model-tag-input');
-  tagInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ',') {
+  document.getElementById('model-add-btn').addEventListener('click', () => postMergedModelsAdd());
+  document.getElementById('model-add-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
       e.preventDefault();
-      addTag(tagInput.value.trim().replace(/,$/, ''));
-      tagInput.value = '';
-    } else if (e.key === 'Backspace' && tagInput.value === '' && models.length) {
-      removeTag(models.length - 1);
+      postMergedModelsAdd();
     }
   });
-  document.getElementById('tags-container').addEventListener('click', () => tagInput.focus());
 
   document.getElementById('save-all-btn').addEventListener('click', saveAllApiConfig);
   document.getElementById('refresh-conn-btn').addEventListener('click', checkConnectivity);
@@ -922,7 +925,6 @@ window.addEventListener('DOMContentLoaded', () => {
 async function restoreCache() {
   const j = localStorage.getItem(LS.JUDGE_MODEL);
   if (j) document.getElementById('judge-input').value = j;
-  try { const m = JSON.parse(localStorage.getItem(LS.MODELS) || '[]'); m.forEach(addTag); } catch(e) {}
 
   // Preload API fields: server is source of truth, fallback to localStorage
   try {
@@ -1097,29 +1099,66 @@ function renderMetricsList() {
   });
 }
 
-// ─── Tags ─────────────────────────────────────────────────────────────────────
-function addTag(val) {
-  if (!val || models.includes(val)) return;
-  models.push(val);
-  renderTags();
-  localStorage.setItem(LS.MODELS, JSON.stringify(models));
+// Ordered union of snapshot model ids + new id(s) for POST /models/ (server builds on prev via from_task).
+function getOrderedModelIdsForPost(newModelId) {
+  const snap = currentSnapshotObj;
+  const fromDict = snap && snap.models && typeof snap.models === 'object' ? Object.keys(snap.models) : [];
+  const fromTask = snap && snap.task && Array.isArray(snap.task.models) ? snap.task.models : [];
+  const seen = new Set();
+  const out = [];
+  for (const id of fromTask) {
+    if (!id || seen.has(id)) continue;
+    if (fromDict.length === 0 || fromDict.includes(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  for (const id of [...fromDict].sort()) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  if (newModelId && !seen.has(newModelId)) {
+    seen.add(newModelId);
+    out.push(newModelId);
+  }
+  return out;
 }
-function removeTag(i) {
-  models.splice(i, 1);
-  renderTags();
-  localStorage.setItem(LS.MODELS, JSON.stringify(models));
-}
-function renderTags() {
-  const container = document.getElementById('tags-container');
-  const input = document.getElementById('model-tag-input');
-  container.querySelectorAll('.tag').forEach(t => t.remove());
-  models.forEach((m, i) => {
-    const tag = document.createElement('span');
-    tag.className = 'tag';
-    tag.innerHTML = `${esc(m)}<span class="tag-remove" data-i="${i}">×</span>`;
-    tag.querySelector('.tag-remove').addEventListener('click', () => removeTag(i));
-    container.insertBefore(tag, input);
-  });
+
+async function postMergedModelsAdd() {
+  const input = document.getElementById('model-add-input');
+  const raw = input.value.trim().replace(/,$/, '');
+  const hintId = 'add-model-hint';
+  if (!raw) {
+    showHint(hintId, 'Enter a model id', 'err');
+    return;
+  }
+  const merged = getOrderedModelIdsForPost(raw);
+  const btn = document.getElementById('model-add-btn');
+  btn.disabled = true;
+  showHint(hintId, 'Adding…', 'info');
+  try {
+    const r = await fetch('/models/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(merged)
+    });
+    if (!r.ok) {
+      const errBody = await r.json().catch(() => ({}));
+      showHint(hintId, 'Error: ' + (errBody.detail || r.statusText), 'err');
+      return;
+    }
+    input.value = '';
+    activeModelTab = raw;
+    showHint(hintId, 'Model added ✓', 'ok');
+    await refreshSnapshotSelectOptions(false, true);
+    await loadSelectedSnapshot();
+  } catch (err) {
+    showHint(hintId, 'Request failed: ' + err.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // GET /status/ only exposes snapshot JSON while evaluator.is_running(); after idle use GET /results/{ts}.
@@ -1174,7 +1213,7 @@ function rebuildRunnerTableHead() {
   const metrics = getTaskMetricNames();
   let html = '';
   html += `<th id="th-select" style="display:${restrict ? 'table-cell' : 'none'};width:40px;" title="Select tests for partial run"></th>`;
-  html += '<th>test_id</th><th>status</th><th class="col-time">time</th><th class="col-tokens">tokens</th>';
+  html += '<th>label · test_id</th><th>status</th><th class="col-time">time</th><th class="col-tokens">tokens</th>';
   metrics.forEach(m => {
     html += `<th class="metric-col" title="${esc(m)}">${esc(m)}</th>`;
   });
@@ -1423,7 +1462,8 @@ function renderRunnerTable() {
   const modelMap = (currentSnapshotObj.models && currentSnapshotObj.models[activeModelTab]) || {};
   const restrict = document.getElementById('restrict-tests-toggle').checked;
   const checked = loadCheckedSet();
-  const ids = Object.keys(tests).sort();
+  // Preserve snapshot / JSON key order (Python dict insertion order); do not sort alphabetically.
+  const ids = Object.keys(tests);
   ids.forEach(tid => {
     const testBody = tests[tid];
     const evalRow = getEvalRowForTest(modelMap, tid, testBody) || { status: 'pending', test_id: tid };
@@ -1442,10 +1482,16 @@ function renderRunnerTable() {
     const chk = restrict
       ? `<input type="checkbox" class="row-test-check" data-test-id="${esc(tid)}" ${checked.has(tid) ? 'checked' : ''}/>`
       : '';
+    const labelText = (testBody && testBody.label != null && String(testBody.label).trim() !== '')
+      ? String(testBody.label).trim()
+      : '';
+    const labelIdCell = labelText
+      ? `<span style="color:var(--text-dim)">${esc(labelText)}</span> <span style="color:var(--text-bright)">${esc(tid)}</span>`
+      : esc(tid);
     const metricCells = metrics.map((m, idx) => `<td>${metricCellHtml(evalRow, m, idx)}</td>`).join('');
     tr.innerHTML = `
       <td style="display:${restrict ? 'table-cell' : 'none'}">${chk}</td>
-      <td>${esc(tid)}</td>
+      <td>${labelIdCell}</td>
       <td><span class="status-badge ${esc(statusClass)}">${esc(evalRow.status)}</span></td>
       <td class="col-time">${esc(timeCell)}</td>
       <td class="col-tokens">${esc(tokenCell)}</td>
@@ -1458,7 +1504,8 @@ function renderRunnerTable() {
       tr.classList.add('selected-row');
       const payload = { test_id: tid, testcase: testBody, evaluated: evalRow };
       currentJsonPayload = payload;
-      document.getElementById('json-panel-title').textContent = `Row: ${tid} (${activeModelTab})`;
+      document.getElementById('json-panel-title').textContent =
+        `Row: ${labelText ? labelText + ' · ' : ''}${tid} (${activeModelTab})`;
       const viewer = document.getElementById('runner-json-viewer');
       viewer.innerHTML = renderJson(payload);
       attachToggleListeners(viewer);
@@ -1490,11 +1537,29 @@ async function runEvalPayload(explicitTests) {
   hint.textContent = '';
   hideGlobalError();
   if (!judge) { hint.textContent = 'Judge model is required'; return; }
-  if (!models.length) { hint.textContent = 'Add at least one subject model'; return; }
+
+  const runAllModels = document.getElementById('run-all-models-toggle').checked;
+  const modelKeys = currentSnapshotObj && currentSnapshotObj.models && typeof currentSnapshotObj.models === 'object'
+    ? Object.keys(currentSnapshotObj.models).sort()
+    : [];
+  if (!modelKeys.length) {
+    hint.textContent = 'Load a snapshot and add at least one subject model (tabs)';
+    return;
+  }
+  let modelsPayload;
+  if (runAllModels) {
+    modelsPayload = [...modelKeys];
+  } else {
+    if (!activeModelTab || !modelKeys.includes(activeModelTab)) {
+      hint.textContent = 'Select a model tab to run';
+      return;
+    }
+    modelsPayload = [activeModelTab];
+  }
 
   runMetricNames = [...selectedMetrics];
   const invalidateCache = document.getElementById('invalidate-cache').checked;
-  const payload = { judge, models, metrics: selectedMetrics, invalidate_cache: invalidateCache };
+  const payload = { judge, models: modelsPayload, metrics: selectedMetrics, invalidate_cache: invalidateCache };
   if (explicitTests && explicitTests.length) payload.tests = explicitTests;
   else Object.assign(payload, buildOptionalTestsField());
 

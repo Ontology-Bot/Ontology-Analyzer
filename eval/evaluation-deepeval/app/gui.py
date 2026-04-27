@@ -30,7 +30,7 @@ async def serve_ui():
     ui_path = Path(__file__).parent / "static" / "index.html"
     return HTMLResponse(content=ui_path.read_text(encoding="utf-8"))
     
-def _normalize_upload_dataset(raw) -> dict:
+def _normalize_upload_dataset(raw) -> dict: # TODO is it required?
     """Build a dataset dict with name + tests for Snapshot.from_dataset."""
     if isinstance(raw, list):
         return {"name": "uploaded-dataset", "tests": raw}
@@ -39,7 +39,7 @@ def _normalize_upload_dataset(raw) -> dict:
         if not isinstance(tests, list):
             raise HTTPException(status_code=400, detail="JSON must contain a 'tests' array")
         name = raw.get("name") or "uploaded-dataset"
-        return {"name": name, "tests": tests}
+        return {"name": name, "tests": tests, "model": raw.get("model")}
     raise HTTPException(status_code=400, detail="JSON must be an object or a tests array")
 
 

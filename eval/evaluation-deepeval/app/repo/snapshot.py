@@ -100,14 +100,16 @@ class Snapshot(BaseModel):
             for t_id, test in current_tests.items(): # each test
                 is_pending = t_id in ids_to_run
                 
-                if not is_pending and t_id in existing_results:
+                existing = existing_results.get(t_id)
+                if not is_pending and existing:
                     # carry over existing result
-                    model_results[t_id] = existing_results[t_id].model_copy()
+                    model_results[t_id] = existing.model_copy()
                 else:
                     # create stub for execution
                     model_results[t_id] = EvaluatedTestResult(
                         test_id=test.name, # carry over new test name
-                        status="pending" if is_pending else "cached"
+                        status="pending" if is_pending else "cached", 
+                        output=existing.output if existing else None # carry over output if any
                     )
             output[model_id] = model_results
             
@@ -132,7 +134,7 @@ class Snapshot(BaseModel):
         content_to_new: dict[str, TestCase] = {}
         
         for i, t in enumerate(dataset.get("tests", [])):
-            test_obj = TestCase.model_validate({**t, "idx": i}) # validate schema
+            test_obj = TestCase.model_validate({**t, "idx": i, "output": None}) # validate schema
             
             if test_obj.name in merged_tests: # catch duplicates
                 raise ValueError(f"Duplicate test name found in dataset: {test_obj.name}")
@@ -147,12 +149,35 @@ class Snapshot(BaseModel):
                     # pop new test & store it under old name (to be able to resolve later)
                     merged_tests[old_test.name] = merged_tests.pop(match.name)
         
+        # initialize base model results
+        models_data = cls._build_model_results(prev, task.models, merged_tests, set()) # mark all as cached
+
+        # inject model results
+        model = dataset.get("model")
+        if model:
+            logger.info(f"Dataset has model '{model}' - injecting into snapshot")
+            # inject into task
+            if model not in task.models:
+                logger.warning(f"Model '{model}' was added to the task")
+                task.models.append(model)
+            # put results for this model
+            model_results = models_data.setdefault(model, {})
+            for i, t in enumerate(dataset.get("tests", [])):
+                output = t.get("output") # if output is set - override models output
+                test_id = t.get("name")
+                if output is not None and test_id in merged_tests: # ensure that test exists
+                    existing_result = model_results.get(test_id)
+                    if existing_result is None or existing_result.output != output: # override only if different from existing
+                        logger.debug(f"Injecting output for model '{model}' test '{test_id}' output: '{output}'")
+                        model_results[test_id] = EvaluatedTestResult(test_id=test_id, status="cached", output=output)
+
+        #
         return cls(
             repo_id=repo_id,
             timestamp=datetime.now(),
             task=task,
             tests=merged_tests,
-            models=cls._build_model_results(prev, task.models, merged_tests, set()) # mark all as cached
+            models=models_data
         )
 
     @classmethod

@@ -763,6 +763,31 @@
               <button class="btn btn-danger btn-sm" id="clear-results-btn" title="Delete all saved snapshots">✕ clear all</button>
             </div>
             <div class="card-body">
+              <!-- Scientific summary (lazy, collapsed by default); GET /results/{ts}/summary -->
+              <div class="card" id="summary-card" style="margin-bottom:14px;background:var(--surface2);border-style:dashed;">
+                <div class="card-header" id="summary-header" style="cursor:pointer;">
+                  <div class="card-title">Scientific Summary</div>
+                  <span id="summary-toggle" style="font-family:var(--mono);color:var(--text-dim);font-size:11px;">▸ show</span>
+                </div>
+                <div class="card-body" id="summary-body" style="display:none;padding-top:0;">
+                  <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+                    <button type="button" class="btn btn-ghost btn-sm" id="summary-copy-md" title="Copy tables as Markdown">copy as .md</button>
+                  </div>
+                  <div class="section" style="border-bottom:none;padding-bottom:12px;margin-bottom:12px;">
+                    <div class="section-label">Per Model</div>
+                    <div class="runner-table-wrap" id="summary-per-model"></div>
+                  </div>
+                  <div class="section" style="border-bottom:none;margin-bottom:0;">
+                    <div class="section-label" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;">
+                      <span>Model × Label</span>
+                      <select id="summary-matrix-metric" class="snapshot-select"
+                              style="min-width:160px;font-size:11px;padding:4px 8px;"></select>
+                    </div>
+                    <div class="runner-table-wrap" id="summary-matrix"></div>
+                  </div>
+                  <div class="hint info" id="summary-hint" style="margin-top:10px;"></div>
+                </div>
+              </div>
               <!-- API: GET /status/ exposes snapshot JSON only while the server reports running; after that use GET /results/{timestamp}. The UI does not change the FastAPI contract. -->
               <div class="runner-toolbar">
                 <div class="runner-toolbar-left">
@@ -837,6 +862,11 @@ let currentJsonPayload = null;
 let evalJustRequested = false;
 let evalUnlockTimer = null;
 let runMetricNames = [];
+
+// ─── Summary panel state (GET /results/{ts}/summary) ─────────────────────────
+let summaryPayload = null;
+let summaryPanelOpen = false;
+let summaryDirty = true;
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 function hideGlobalError() {
@@ -917,6 +947,8 @@ window.addEventListener('DOMContentLoaded', () => {
     await refreshSnapshotSelectOptions();
     await loadSelectedSnapshot();
   });
+
+  setupSummaryPanel();
 
   checkConnectivity();
 });
@@ -1270,6 +1302,22 @@ function getEvalRowForTest(modelMap, tid, testBody) {
   return null;
 }
 
+// ─── Score color (heatmap + per-row metric cells) ─────────────────────────────
+// Maps a 0..1 score to HSL background (red -> yellow -> green).
+function scoreToBg(score, alpha = 0.32) {
+  const value = Number(score);
+  if (!Number.isFinite(value)) return 'transparent';
+  const clamped = Math.max(0, Math.min(1, value));
+  const hue = 120 * clamped;
+  return `hsla(${hue}, 70%, 45%, ${alpha})`;
+}
+
+function scoreToFg(score) {
+  const value = Number(score);
+  if (!Number.isFinite(value)) return 'var(--text-dim)';
+  return 'var(--text-bright)';
+}
+
 // task.metrics uses registry keys (e.g. "geval"); deepeval MetricData.name is the metric's own label (e.g. "Correctness").
 // evaluate() is called with metrics in task order, so metrics_data[i] aligns with task.metrics[i].
 function findMetricResultItem(evalRow, metricKey, metricIndex) {
@@ -1297,7 +1345,15 @@ function metricCellHtml(evalRow, metricKey, metricIndex) {
   let score = item.score;
   if (score === undefined || score === null) score = item.success;
   if (score === undefined || score === null) return '<span style="color:var(--text-dim)">—</span>';
-  return `<span class="mini-metric">${esc(String(score))}</span>`;
+  let numeric = Number(score);
+  if (!Number.isFinite(numeric) && typeof score === 'boolean') numeric = score ? 1 : 0;
+  if (!Number.isFinite(numeric)) {
+    return `<span class="mini-metric">${esc(String(score))}</span>`;
+  }
+  const bg = scoreToBg(numeric);
+  const fg = scoreToFg(numeric);
+  const label = numeric.toFixed(2);
+  return `<span class="mini-metric" style="background:${bg};color:${fg};border-color:rgba(255,255,255,0.12)">${label}</span>`;
 }
 
 function buildOptionalTestsField() {
@@ -1349,6 +1405,277 @@ function updateRunChrome(summary, running) {
   }
 }
 
+// ─── Summary panel (pandas aggregates from backend) ──────────────────────────
+function formatMeanStdText(mean, std, count) {
+  if (count === 0 || mean == null || Number.isNaN(Number(mean))) return '—';
+  const average = Number(mean);
+  const spread = std != null && !Number.isNaN(Number(std)) ? Number(std) : 0;
+  return `${average.toFixed(2)} ± ${spread.toFixed(2)}`;
+}
+
+function formatPassRateText(rate) {
+  if (rate == null || Number.isNaN(Number(rate))) return '—';
+  return `${(Number(rate) * 100).toFixed(0)}%`;
+}
+
+function formatUsageMeanStd(stats, decimals) {
+  if (!stats || stats.mean == null || !stats.n) return '—';
+  const average = Number(stats.mean);
+  const spread = stats.std != null && !Number.isNaN(Number(stats.std)) ? Number(stats.std) : 0;
+  const decimalsSpread = decimals;
+  return `${average.toFixed(decimals)} ± ${spread.toFixed(decimalsSpread)}`;
+}
+
+function renderSummaryPerModel() {
+  const mount = document.getElementById('summary-per-model');
+  if (!mount || !summaryPayload) return;
+  const metricNames = summaryPayload.metrics || [];
+  let head = '<tr><th>model</th><th>n</th><th>err</th><th>pass</th><th>time (s)</th><th>tokens</th>';
+  metricNames.forEach(m => { head += `<th class="metric-col" title="${esc(m)}">${esc(m)}</th>`; });
+  head += '</tr>';
+  const neutral = 'style="color:var(--text);font-variant-numeric:tabular-nums"';
+  const rows = (summaryPayload.per_model || []).map(row => {
+    let line = `<tr><td>${esc(String(row.model))}</td><td>${row.n_tests ?? '—'}</td><td>${row.errors ?? '—'}</td><td>${formatPassRateText(row.pass_rate)}</td>`;
+    line += `<td ${neutral}>${esc(formatUsageMeanStd(row.time_sec, 2))}</td>`;
+    line += `<td ${neutral}>${esc(formatUsageMeanStd(row.tokens, 0))}</td>`;
+    const byMetric = row.by_metric || {};
+    metricNames.forEach(key => {
+      const stats = byMetric[key];
+      if (!stats || stats.mean == null) {
+        line += '<td><span style="color:var(--text-dim)">—</span></td>';
+      } else {
+        const text = formatMeanStdText(stats.mean, stats.std, stats.n);
+        const bg = scoreToBg(stats.mean);
+        const fg = scoreToFg(stats.mean);
+        line += `<td style="background:${bg};color:${fg}">${esc(text)}</td>`;
+      }
+    });
+    return line + '</tr>';
+  }).join('');
+  mount.innerHTML = `<table class="runner-table"><thead>${head}</thead><tbody>${rows || ''}</tbody></table>`;
+}
+
+function mdEscapeCell(value) {
+  return String(value ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+}
+
+function buildSummaryMarkdown() {
+  if (!summaryPayload) return '';
+  const metricNames = summaryPayload.metrics || [];
+  const lines = [];
+  lines.push('# Scientific summary', '');
+  lines.push('## Per model', '');
+  const headerRow = ['model', 'n', 'err', 'pass', 'time_s_mean_std', 'tokens_mean_std', ...metricNames];
+  lines.push('| ' + headerRow.map(mdEscapeCell).join(' | ') + ' |');
+  lines.push('| ' + headerRow.map(() => '---').join(' | ') + ' |');
+  (summaryPayload.per_model || []).forEach(row => {
+    const cells = [
+      row.model,
+      row.n_tests,
+      row.errors,
+      formatPassRateText(row.pass_rate),
+      formatUsageMeanStd(row.time_sec, 2),
+      formatUsageMeanStd(row.tokens, 0),
+    ];
+    const byMetric = row.by_metric || {};
+    metricNames.forEach(key => {
+      const stats = byMetric[key];
+      cells.push(stats && stats.mean != null ? formatMeanStdText(stats.mean, stats.std, stats.n) : '—');
+    });
+    lines.push('| ' + cells.map(mdEscapeCell).join(' | ') + ' |');
+  });
+  lines.push('');
+  (metricNames.length ? metricNames : Object.keys(summaryPayload.matrix || {})).forEach(metricKey => {
+    const matrix = (summaryPayload.matrix || {})[metricKey];
+    if (!matrix || !(matrix.cols || []).length) return;
+    lines.push(`## Model × label — ${metricKey}`, '');
+    const cols = matrix.cols;
+    const rowLabels = matrix.rows || [];
+    const means = matrix.cells_mean || [];
+    const stds = matrix.cells_std || [];
+    const counts = matrix.cells_n || [];
+    const head = ['label', ...cols];
+    lines.push('| ' + head.map(mdEscapeCell).join(' | ') + ' |');
+    lines.push('| ' + head.map(() => '---').join(' | ') + ' |');
+    rowLabels.forEach((labelRow, rowIndex) => {
+      const meanRow = means[rowIndex] || [];
+      const stdRow = stds[rowIndex] || [];
+      const countRow = counts[rowIndex] || [];
+      const rowCells = [labelRow];
+      cols.forEach((unused, columnIndex) => {
+        const meanValue = meanRow[columnIndex];
+        const stdValue = stdRow[columnIndex];
+        const cellCount = countRow[columnIndex] || 0;
+        rowCells.push(
+          meanValue != null && cellCount
+            ? formatMeanStdText(meanValue, stdValue, cellCount)
+            : '—'
+        );
+      });
+      lines.push('| ' + rowCells.map(mdEscapeCell).join(' | ') + ' |');
+    });
+    lines.push('');
+  });
+  return lines.join('\n');
+}
+
+async function copySummaryAsMarkdown() {
+  const hint = document.getElementById('summary-hint');
+  const text = buildSummaryMarkdown();
+  if (!text.trim()) {
+    if (hint) { hint.textContent = 'Nothing to copy yet.'; hint.className = 'hint err'; }
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    if (hint) {
+      hint.textContent = 'Copied markdown to clipboard.';
+      hint.className = 'hint ok';
+      setTimeout(() => { if (hint.textContent === 'Copied markdown to clipboard.') hint.textContent = ''; }, 2500);
+    }
+  } catch (err) {
+    if (hint) {
+      hint.textContent = 'Clipboard failed: ' + err.message;
+      hint.className = 'hint err';
+    }
+  }
+}
+
+function renderSummaryMatrix() {
+  const mount = document.getElementById('summary-matrix');
+  const metricSelect = document.getElementById('summary-matrix-metric');
+  if (!mount || !summaryPayload || !metricSelect) return;
+  const metricKey = metricSelect.value;
+  const matrixBundle = summaryPayload.matrix || {};
+  const matrix = matrixBundle[metricKey];
+  if (!matrix || !(matrix.cols || []).length) {
+    mount.innerHTML = '<span style="font-family:var(--mono);font-size:11px;color:var(--text-dim)">No matrix data for this metric.</span>';
+    return;
+  }
+  const cols = matrix.cols;
+  const rowLabels = matrix.rows || [];
+  const means = matrix.cells_mean || [];
+  const stds = matrix.cells_std || [];
+  const counts = matrix.cells_n || [];
+  let head = '<tr><th>label (n)</th>';
+  cols.forEach(c => { head += `<th class="metric-col">${esc(String(c))}</th>`; });
+  head += '</tr>';
+  const body = rowLabels.map((labelRow, rowIndex) => {
+    const meanRow = means[rowIndex] || [];
+    const stdRow = stds[rowIndex] || [];
+    const countRow = counts[rowIndex] || [];
+    const isAll = labelRow === 'ALL';
+    const labelHtml = isAll ? `<b>${esc(labelRow)}</b>` : esc(String(labelRow));
+    let line = `<tr><td>${labelHtml}`;
+    if (!isAll && countRow.length) {
+      const sample = countRow.reduce((accumulator, value) => accumulator + (value || 0), 0);
+      line += ` <span style="color:var(--text-dim)">(n=${sample})</span>`;
+    }
+    line += '</td>';
+    cols.forEach((unused, columnIndex) => {
+      const meanValue = meanRow[columnIndex];
+      const stdValue = stdRow[columnIndex];
+      const cellCount = countRow[columnIndex] || 0;
+      if (meanValue == null || cellCount === 0) {
+        line += '<td><span style="color:var(--text-dim)">—</span></td>';
+      } else {
+        const text = formatMeanStdText(meanValue, stdValue, cellCount);
+        const bg = scoreToBg(meanValue);
+        const fg = scoreToFg(meanValue);
+        line += `<td style="background:${bg};color:${fg}">${esc(text)}</td>`;
+      }
+    });
+    return line + '</tr>';
+  }).join('');
+  mount.innerHTML = `<table class="runner-table"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+
+function populateMatrixMetricSelect() {
+  const metricSelect = document.getElementById('summary-matrix-metric');
+  if (!metricSelect || !summaryPayload) return;
+  const names = summaryPayload.metrics || [];
+  const previous = metricSelect.value;
+  metricSelect.innerHTML = '';
+  names.forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    metricSelect.appendChild(opt);
+  });
+  if (previous && names.includes(previous)) metricSelect.value = previous;
+  else if (names.length) metricSelect.selectedIndex = 0;
+}
+
+function renderSummaryTables() {
+  renderSummaryPerModel();
+  populateMatrixMetricSelect();
+  renderSummaryMatrix();
+}
+
+async function fetchSummary() {
+  const hint = document.getElementById('summary-hint');
+  const snapshotSelect = document.getElementById('snapshot-select');
+  const timestampToken = snapshotSelect && snapshotSelect.value === '__live__'
+    ? 'live'
+    : currentSnapshotTimestamp;
+  if (!timestampToken || timestampToken === '') {
+    if (hint) hint.textContent = 'Select a snapshot first.';
+    summaryPayload = null;
+    renderSummaryTables();
+    return;
+  }
+  if (hint) hint.textContent = 'Loading…';
+  try {
+    const response = await fetch('/results/' + encodeURIComponent(timestampToken) + '/summary');
+    if (!response.ok) {
+      if (hint) hint.textContent = 'Could not load summary.';
+      summaryPayload = null;
+      renderSummaryTables();
+      return;
+    }
+    summaryPayload = await response.json();
+    summaryDirty = false;
+    if (hint) hint.textContent = '';
+    renderSummaryTables();
+  } catch (exc) {
+    if (hint) hint.textContent = 'Request failed: ' + exc.message;
+    summaryPayload = null;
+    renderSummaryTables();
+  }
+}
+
+function invalidateSummary() {
+  summaryPayload = null;
+  summaryDirty = true;
+  const hint = document.getElementById('summary-hint');
+  if (hint) hint.textContent = '';
+}
+
+function setupSummaryPanel() {
+  const header = document.getElementById('summary-header');
+  const body = document.getElementById('summary-body');
+  const toggle = document.getElementById('summary-toggle');
+  const metricSelect = document.getElementById('summary-matrix-metric');
+  if (!header || !body || !toggle) return;
+  header.addEventListener('click', () => {
+    const opening = body.style.display === 'none';
+    body.style.display = opening ? 'block' : 'none';
+    toggle.textContent = opening ? '▾ hide' : '▸ show';
+    summaryPanelOpen = opening;
+    if (opening && (summaryDirty || !summaryPayload)) fetchSummary();
+  });
+  if (metricSelect) {
+    metricSelect.addEventListener('change', () => renderSummaryMatrix());
+  }
+  const copyBtn = document.getElementById('summary-copy-md');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', event => {
+      event.stopPropagation();
+      copySummaryAsMarkdown();
+    });
+  }
+}
+
 async function refreshSnapshotSelectOptions(forceLiveOption, reselectLatestDisk) {
   const sel = document.getElementById('snapshot-select');
   const previous = sel.value;
@@ -1390,6 +1717,7 @@ async function loadSelectedSnapshot() {
     rebuildRunnerTableHead();
     renderModelTabs();
     renderRunnerTable();
+    invalidateSummary();
     return;
   }
   if (val === '__live__') {
@@ -1399,6 +1727,7 @@ async function loadSelectedSnapshot() {
       const tbody = document.getElementById('runner-tbody');
       const nc = runnerTableColspan();
       tbody.innerHTML = `<tr><td colspan="${nc}" style="border:none;padding:18px;font-family:var(--mono);font-size:11px;color:var(--text-dim);">Waiting for live snapshot from <code>/status/</code>…</td></tr>`;
+      invalidateSummary();
       return;
     }
     currentSnapshotObj = liveSnapshotObj;
@@ -1409,12 +1738,15 @@ async function loadSelectedSnapshot() {
         currentSnapshotObj = null;
         renderModelTabs();
         renderRunnerTable();
+        invalidateSummary();
         return;
       }
       currentSnapshotObj = await r.json();
       currentSnapshotTimestamp = val;
     } catch (e) {
       currentSnapshotObj = null;
+      invalidateSummary();
+      return;
     }
   }
   const modelKeys = Object.keys((currentSnapshotObj && currentSnapshotObj.models) || {});
@@ -1427,6 +1759,8 @@ async function loadSelectedSnapshot() {
   syncRestrictColumnVisibility();
   renderModelTabs();
   renderRunnerTable();
+  invalidateSummary();
+  if (summaryPanelOpen) fetchSummary();
 }
 
 function renderModelTabs() {
@@ -1645,6 +1979,7 @@ async function pollStatus() {
       currentSnapshotObj = liveSnapshotObj;
       renderModelTabs();
       renderRunnerTable();
+      if (summaryPanelOpen) fetchSummary();
     }
   } else if (s.status !== 'error') {
     updateRunChrome(null, false);

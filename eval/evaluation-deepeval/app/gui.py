@@ -153,3 +153,17 @@ async def get_result(timestamp: str):
     if not result:
         raise HTTPException(status_code=404, detail="Not found")
     return result
+
+
+@app.get("/results/{timestamp}/summary")
+async def get_result_summary(timestamp: str):
+    """Pandas aggregates for Scientific Summary UI (disk snapshot or live run)."""
+    from app.repo.analytics import build_summary
+
+    if timestamp == "live":
+        snapshot = evaluator.tracker.snapshot if evaluator.tracker else None
+    else:
+        snapshot = evaluator.repo.get_at_timestamp(timestamp)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="snapshot not found")
+    return build_summary(snapshot)

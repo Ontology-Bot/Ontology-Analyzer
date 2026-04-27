@@ -72,8 +72,8 @@ class Evaluator:
         metrics = construct_metrics(StubLLM(""))
         return list(metrics.keys()) if metrics else []
     
-    def load_testcases(self, testcases: dict, task: EvaluationRequest | None = None):
-        self.snapshot = Snapshot.from_dataset(self.repo.get_at_head(), task, testcases)
+    def load_testcases(self, testcases: dict):
+        self.snapshot = Snapshot.from_dataset(self.repo.get_at_head(), testcases)
         self.repo.commit(self.snapshot)
 
     def add_models(self, models: list[str]):
@@ -103,8 +103,8 @@ class Evaluator:
             snapshot = Snapshot.from_task(self.snapshot, task)
 
             self.tracker = EvaluationTracker(
-                request=task,
-                snapshot=snapshot
+                request=snapshot.task,
+                snapshot=snapshot,
             )
             # for each model
             for model in task.models:
@@ -114,7 +114,7 @@ class Evaluator:
                     body = self.tracker.get_test_body(test_id)
                     output = testcase.output  # not nice (tracker must expose readonly test body) TODO
                     error = None
-                    usage = None  # TODO
+                    usage = None # TODO
                     # do completions
                     if not output:
                         try:

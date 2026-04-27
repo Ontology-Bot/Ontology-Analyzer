@@ -2,7 +2,6 @@ from datetime import datetime
 from typing import Literal
 from pydantic import BaseModel
 
-from collections import defaultdict
 from copy import deepcopy
 
 from deepeval.evaluate.types import EvaluationResult, TestResult
@@ -26,9 +25,6 @@ class EvaluationRequest(BaseModel):
     tests: list[str] | None = None
     invalidate_cache: bool = False
 
-    @classmethod
-    def empty(cls):
-        return cls(judge="", models=[], metrics=[])
 
 class EvaluatedTestResult(BaseModel):
     '''
@@ -79,50 +75,79 @@ class Snapshot(BaseModel):
         old_tests = {t.get_key() for t in s1.tests.values()}
         new_tests = {t.get_key() for t in s2.tests.values()}
         return old_tests == new_tests
-    
+
+    @staticmethod
+    def filter_present_keys(
+        tests: list[str] | None,
+        valid_keys: set[str],
+    ) -> tuple[list[str] | None, list[str]]:
+        """If tests is None, return (None, []). Else intersection (sorted) and unknown ids (sorted)."""
+        if tests is None:
+            return None, []
+        requested = set(tests)
+        return sorted(requested & valid_keys), sorted(requested - valid_keys)
+
     @staticmethod
     def _build_model_results(
-        prev: "Snapshot | None", 
-        target_models: set[str], # models to run
-        ids_to_run: set[str], # tests to run
-        current_tests: dict[str, TestCase], # full list of tests
+        models: list[str] | None,  # models to run (none for all)
+        tests: list[str] | None,  # tests to run (None = all tests; [] = none pending, all cached)
+        current_models: dict[str, dict[str, EvaluatedTestResult]],  # full list of models with results
+        current_tests: dict[str, TestCase],  # full list of tests
     ) -> dict[str, dict[str, EvaluatedTestResult]]:
         """
         generic logic to carry over results or initialize new ones.
         """
-        output = deepcopy(prev.models) if prev else {} # build on top of existing results
+        all_models = set(current_models.keys())
+        all_tests = set(current_tests.keys())
+        # resolve models and tests to run - if not provided, run all
+        run_tests = set(tests) if tests is not None else all_tests
+        run_models = set(models) if models is not None else all_models
 
-        for model_id in target_models: # for each model
+        # resolve unknown tests - ignore (drop ids that are not in the current test list)
+        unknown_tests = run_tests - all_tests
+        if unknown_tests:
+            logger.warning("Ignoring unknown tests for snapshot: %s", sorted(unknown_tests))
+            run_tests -= unknown_tests
+
+        # resolve unknown models - append
+        new_models = run_models - all_models
+        if new_models:
+            logger.info("Adding new models to snapshot: %s", sorted(new_models))
+            all_models |= run_models
+
+        # build on top of existing results
+        output = deepcopy(current_models)
+        for model_id in all_models:
+            is_selected = model_id in run_models
             results = output.setdefault(model_id, {})
 
-            for t_id, test in current_tests.items(): # each test
-                is_pending = t_id in ids_to_run
-                existing = results.get(t_id)
-                if is_pending or not existing: # cant carry over old result
-                    # create stub for execution
-                    results[t_id] = EvaluatedTestResult(
-                        test_id=test.name, # carry over new test name
-                        status="pending" if is_pending else "cached", 
-                        output=existing.output if existing else None # carry over output if any
+            # test got removed from snapshot — drop stale rows
+            for stale_id in list(results.keys()):
+                if stale_id not in all_tests:
+                    del results[stale_id]
+
+            for test_id, test in current_tests.items():
+                is_pending = is_selected and test_id in run_tests
+                existing = results.get(test_id)
+                if is_pending or not existing:  # cant carry over old result
+                    results[test_id] = EvaluatedTestResult(
+                        test_id=test.name,  # carry over new test name
+                        status="pending" if is_pending else "cached",
+                        output=existing.output if existing else None,  # carry over output if any
                     )
-            
+
         return output
 
     @classmethod
-    def from_dataset(cls, prev: "Snapshot | None", task: EvaluationRequest | None, dataset: dict) -> "Snapshot":
+    def from_dataset(cls, prev: "Snapshot | None", dataset: dict) -> "Snapshot":
         repo_id = dataset.get("name")
         if not repo_id:
             raise ValueError("Invalid dataset - no name provided")
         if prev and prev.repo_id != repo_id:
             raise ValueError("Repo ID mismatch")
-        # Set task - try carry over from prev, otherwise use empty task
-        if task is None:
-            if prev:
-                task = prev.task
-            else:
-                logger.warning("No task provided for new dataset and no previous snapshot found - using empty task")
-                task = EvaluationRequest.empty()
-        # init tests from dataset 
+        # Task always comes from the prior snapshot; first commit uses a placeholder until evaluate/config.
+        task = prev.task if prev else EvaluationRequest(judge="", models=[], metrics=[])
+        # init tests from dataset
         merged_tests: dict[str, TestCase] = {}
         content_to_new: dict[str, TestCase] = {}
         
@@ -133,7 +158,7 @@ class Snapshot(BaseModel):
                 raise ValueError(f"Duplicate test name found in dataset: {test_obj.name}")
             
             merged_tests[test_obj.name] = test_obj # save by name
-            content_to_new[test_obj.get_key()] = test_obj # and by key (to detect renaming)
+            content_to_new[test_obj.get_key()] = test_obj  # and by key (to detect renaming)
 
         if prev:
             for old_test in prev.tests.values():
@@ -142,49 +167,72 @@ class Snapshot(BaseModel):
                     # pop new test & store it under old name (to be able to resolve later)
                     merged_tests[old_test.name] = merged_tests.pop(match.name)
 
-        # initialize base model results
-        models_data = cls._build_model_results(prev, set(task.models), set(), merged_tests) # mark all as cached
+        # Models to refresh: task list, any column from prev, optional dataset "model" field.
+        models_for_merge = set(task.models)
+        if prev:
+            models_for_merge |= set(prev.models.keys())
+        dataset_model = dataset.get("model")
+        if dataset_model:
+            models_for_merge.add(dataset_model)
+
+        models_data = prev.models if prev else {}
+        # [] => no pending rows; everything stays cached for the new test list.
+        models_data = cls._build_model_results(list(models_for_merge), [], models_data, merged_tests)
 
         # inject model results
-        model = dataset.get("model")
-        if model:
-            logger.info(f"Dataset has model '{model}' - injecting into snapshot")
-            # inject into task
-            if model not in task.models:
-                logger.warning(f"Model '{model}' was added to the task")
-                task.models.append(model)
+        if dataset_model:
+            logger.info("Dataset has model '%s' — injecting into snapshot", dataset_model)
+            if dataset_model not in task.models:
+                logger.warning("Model '%s' was added to the task", dataset_model)
+                task.models.append(dataset_model)
             # put results for this model
-            model_results = models_data.setdefault(model, {})
+            model_results = models_data.setdefault(dataset_model, {})
             for i, t in enumerate(dataset.get("tests", [])):
-                output = t.get("output") # if output is set - override models output
+                output = t.get("output")  # if output is set — override model output
                 test_id = t.get("name")
-                if output is not None and test_id in merged_tests: # ensure that test exists
+                if output is not None and test_id in merged_tests:  # ensure that test exists
                     existing_result = model_results.get(test_id)
-                    if existing_result is None or existing_result.output != output: # override only if different from existing
-                        logger.debug(f"Injecting output for model '{model}' test '{test_id}' output: '{output}'")
-                        model_results[test_id] = EvaluatedTestResult(test_id=test_id, status="cached", output=output)
+                    if existing_result is None or existing_result.output != output:
+                        logger.debug(
+                            "Injecting output for model '%s' test '%s'",
+                            dataset_model,
+                            test_id,
+                        )
+                        model_results[test_id] = EvaluatedTestResult(
+                            test_id=test_id,
+                            status="cached",
+                            output=output,
+                        )
 
-        #
         return cls(
             repo_id=repo_id,
             timestamp=datetime.now(),
             task=task,
             tests=merged_tests,
-            models=models_data
+            models=models_data,
         )
-    
+
     @classmethod
     def from_task(cls, prev: "Snapshot", task: EvaluationRequest) -> "Snapshot":
-        # if tests_to_run is None - run everything from prev
-        run_set_tests = set(task.tests) if task.tests is not None else set(prev.tests.keys())
-        run_set_models = set(task.models) if task.models else set(prev.models.keys())
+        tests = set(prev.tests.keys())
+        valid_tests, unknown_tests = cls.filter_present_keys(task.tests, tests)
+        if unknown_tests:
+            logger.warning("Ignoring unknown test ids not in snapshot: %s", unknown_tests)
+        # New instance: avoids mutating caller / prev.task when they share the same object.
+        task = task.model_copy(update={"tests": valid_tests})
 
+        models_data = cls._build_model_results(
+            task.models,
+            valid_tests,
+            prev.models,
+            prev.tests,
+        )
         return cls(
             repo_id=prev.repo_id,
             timestamp=datetime.now(),
             task=task,
             tests=prev.tests,
-            models=cls._build_model_results(prev, run_set_models, run_set_tests, prev.tests)
+            models=models_data,
         )
     
     def to_dataset(self):
@@ -199,8 +247,14 @@ class EvaluationTracker:
     def __init__(self, request: EvaluationRequest, snapshot: Snapshot):
         self.snapshot = snapshot
         self.request = request
-        # When tests is None, run every test in the snapshot (same semantics as Snapshot.from_task).
-        self.test_set = set(request.tests) if request.tests is not None else set(snapshot.tests.keys())
+        tests = set(snapshot.tests.keys())
+        valid_tests, unknown_tests = Snapshot.filter_present_keys(request.tests, tests)
+        if unknown_tests:
+            logger.warning(
+                "EvaluationTracker: ignoring test ids not in snapshot: %s",
+                unknown_tests,
+            )
+        self.test_set = set(valid_tests) if valid_tests is not None else tests
         self.summary = EvaluationSummary(total=len(self.test_set) * len(request.models))
         self.current_tests: dict[str, EvaluatedTestResult] | None = None
         self.failed: set[str] = set()

@@ -49,8 +49,11 @@ class Evaluator:
         self.repo = Repository(self.path / "repo")
         self.tracker: EvaluationTracker | None = None
         self.last_error: str | None = None
-        if self.repo.is_empty():
+        head = self.repo.get_at_head()
+        if self.repo.repo_id is None or head is None:
             self.load_testcases(read_testcases(self.path / "golden-dataset.json"))
+        else:
+            self.snapshot = head
 
     def is_running(self) -> bool:
         return self._is_running
@@ -74,7 +77,7 @@ class Evaluator:
         self.repo.commit(self.snapshot)
 
     def add_models(self, models: list[str]):
-        self.snapshot = Snapshot.from_task(self.snapshot, self.snapshot.task.model_copy(update={"models": models, "tests": None})) # do not update any tests
+        self.snapshot = Snapshot.from_task(self.snapshot, self.snapshot.task.model_copy(update={"models": models, "tests": []}))  # do not mark tests pending on add
         self.repo.commit(self.snapshot)
     
     def run_evaluation(self, task: EvaluationRequest):

@@ -1493,22 +1493,22 @@ function buildSummaryMarkdown() {
     const rowLabels = matrix.rows || [];
     const means = matrix.cells_mean || [];
     const stds = matrix.cells_std || [];
-    const counts = matrix.cells_n || [];
+    const datasetNPerRow = matrix.dataset_n_per_row || [];
     const head = ['label', ...cols];
     lines.push('| ' + head.map(mdEscapeCell).join(' | ') + ' |');
     lines.push('| ' + head.map(() => '---').join(' | ') + ' |');
     rowLabels.forEach((labelRow, rowIndex) => {
       const meanRow = means[rowIndex] || [];
       const stdRow = stds[rowIndex] || [];
-      const countRow = counts[rowIndex] || [];
-      const rowCells = [labelRow];
+      const datasetN = datasetNPerRow[rowIndex] || 0;
+      const labelWithN = datasetN ? `${labelRow} (n=${datasetN})` : String(labelRow);
+      const rowCells = [labelWithN];
       cols.forEach((unused, columnIndex) => {
         const meanValue = meanRow[columnIndex];
         const stdValue = stdRow[columnIndex];
-        const cellCount = countRow[columnIndex] || 0;
         rowCells.push(
-          meanValue != null && cellCount
-            ? formatMeanStdText(meanValue, stdValue, cellCount)
+          datasetN > 0 && meanValue != null
+            ? formatMeanStdText(meanValue, stdValue, datasetN)
             : '—'
         );
       });
@@ -1556,30 +1556,28 @@ function renderSummaryMatrix() {
   const rowLabels = matrix.rows || [];
   const means = matrix.cells_mean || [];
   const stds = matrix.cells_std || [];
-  const counts = matrix.cells_n || [];
+  const datasetNPerRow = matrix.dataset_n_per_row || [];
   let head = '<tr><th>label (n)</th>';
   cols.forEach(c => { head += `<th class="metric-col">${esc(String(c))}</th>`; });
   head += '</tr>';
   const body = rowLabels.map((labelRow, rowIndex) => {
     const meanRow = means[rowIndex] || [];
     const stdRow = stds[rowIndex] || [];
-    const countRow = counts[rowIndex] || [];
+    const datasetN = datasetNPerRow[rowIndex] || 0;
     const isAll = labelRow === 'ALL';
     const labelHtml = isAll ? `<b>${esc(labelRow)}</b>` : esc(String(labelRow));
     let line = `<tr><td>${labelHtml}`;
-    if (!isAll && countRow.length) {
-      const sample = countRow.reduce((accumulator, value) => accumulator + (value || 0), 0);
-      line += ` <span style="color:var(--text-dim)">(n=${sample})</span>`;
+    if (datasetN > 0) {
+      line += ` <span style="color:var(--text-dim)">(n=${datasetN})</span>`;
     }
     line += '</td>';
     cols.forEach((unused, columnIndex) => {
       const meanValue = meanRow[columnIndex];
       const stdValue = stdRow[columnIndex];
-      const cellCount = countRow[columnIndex] || 0;
-      if (meanValue == null || cellCount === 0) {
+      if (!datasetN || meanValue == null) {
         line += '<td><span style="color:var(--text-dim)">—</span></td>';
       } else {
-        const text = formatMeanStdText(meanValue, stdValue, cellCount);
+        const text = formatMeanStdText(meanValue, stdValue, datasetN);
         const bg = scoreToBg(meanValue);
         const fg = scoreToFg(meanValue);
         line += `<td style="background:${bg};color:${fg}">${esc(text)}</td>`;

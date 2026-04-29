@@ -9,7 +9,7 @@ def construct_metrics(judge_wrapper: DeepEvalBaseLLM, metric_names: list[str] | 
         "simple_numeric": SimpleNumericMatchMetric(),
         "geval": GEval(
             name="Correctness",
-            criteria="Determine whether the actual output is factually correct based on the expected output.",
+            criteria="Determine whether the actual output is factually correct based on the expected output. Actual output may provide additional details, but they can be ignored as long as facts from expected output are not contradicted.",
             evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
             model=judge_wrapper
         )

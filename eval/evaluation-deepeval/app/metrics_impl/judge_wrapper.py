@@ -6,21 +6,21 @@ class OpenAIBaseLLM(DeepEvalBaseLLM):
         self,
         model_name: str,
         client: LLMAdapter,
-        invalidate_cache: bool
+        refresh_judge: bool
     ):
         self.model_name = model_name
         self.client = client
-        self.invalidate_cache = invalidate_cache
+        self.refresh_judge = refresh_judge
 
     def load_model(self):
         return self
 
     def generate(self, prompt: str) -> str:
-        res, _ = self.client.chat_text(self.model_name, prompt, self.invalidate_cache)
+        res, _ = self.client.chat_text(self.model_name, prompt, self.refresh_judge)
         return res
 
     async def a_generate(self, prompt: str) -> str:
-        res, _ = await self.client.a_chat_text(self.model_name, prompt, self.invalidate_cache)
+        res, _ = await self.client.a_chat_text(self.model_name, prompt, self.refresh_judge)
         return res
 
     def get_model_name(self):

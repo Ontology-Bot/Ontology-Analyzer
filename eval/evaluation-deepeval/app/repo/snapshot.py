@@ -1,10 +1,10 @@
 from datetime import datetime
 from typing import Literal
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from copy import deepcopy
 
-from deepeval.evaluate.types import EvaluationResult, TestResult
+from deepeval.evaluate.types import TestResult
 
 import logging
 logger = logging.getLogger(__name__)
@@ -23,7 +23,23 @@ class EvaluationRequest(BaseModel):
     models: list[str]
     metrics: list[str]
     tests: list[str] | None = None
-    invalidate_cache: bool = False
+    refresh_subject: bool = False
+    refresh_judge: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_invalidate_cache(cls, value):
+        if not isinstance(value, dict):
+            return value
+        if "refresh_subject" in value or "refresh_judge" in value:
+            return value
+        if "invalidate_cache" not in value:
+            return value
+        migrated = dict(value)
+        legacy_refresh = bool(migrated.get("invalidate_cache", False))
+        migrated["refresh_subject"] = legacy_refresh
+        migrated["refresh_judge"] = legacy_refresh
+        return migrated
 
 
 class EvaluatedTestResult(BaseModel):
@@ -35,6 +51,8 @@ class EvaluatedTestResult(BaseModel):
     output: str | None = None
     result: TestResult | None = None
     error: str | None = None
+    duration: float | None = None
+    token_usage: int | None = None
 
 
 class TestCase(BaseModel):
@@ -134,6 +152,8 @@ class Snapshot(BaseModel):
                         test_id=test.name,  # carry over new test name
                         status="pending" if is_pending else "cached",
                         output=existing.output if existing else None,  # carry over output if any
+                        duration=existing.duration if existing else None,
+                        token_usage=existing.token_usage if existing else None,
                     )
 
         return output
@@ -202,7 +222,13 @@ class Snapshot(BaseModel):
                             test_id=test_id,
                             status="cached",
                             output=output,
+                            duration=t.get("duration"),
+                            token_usage=t.get("token_usage"),
                         )
+                    else:
+                        model_results[test_id].duration = t.get("duration")
+                        model_results[test_id].token_usage = t.get("token_usage")
+
 
         return cls(
             repo_id=repo_id,

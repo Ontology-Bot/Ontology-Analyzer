@@ -93,7 +93,7 @@ class Evaluator:
                 raise ValueError("no metrics providen")
             # judge must be available
             _test_model_throw(self._judge, task.judge)
-            judge_wrapper = OpenAIBaseLLM(task.judge, self._judge, task.invalidate_cache)
+            judge_wrapper = OpenAIBaseLLM(task.judge, self._judge, task.refresh_judge)
             # build metric list
             metrics = construct_metrics(judge_wrapper, task.metrics)
 
@@ -114,16 +114,17 @@ class Evaluator:
                     body = self.tracker.get_test_body(test_id)
                     output = testcase.output  # not nice (tracker must expose readonly test body) TODO
                     error = None
-                    usage = None # TODO
+                    usage = None
                     # do completions
-                    if not output:
+                    if not output or task.refresh_subject:
                         try:
-                            output, usage = self._subject.chat_text(model, body.input, task.invalidate_cache)
+                            output, usage = self._subject.chat_text(model, body.input, task.refresh_subject)
                         except Exception as exc:
                             logger.exception("Invalid response from model %s", model)
                             error = str(exc)
                     else:
                         logger.info(f"Using preset output for model {model} test '{test_id}'")
+                        usage = LLMUsage(duration=testcase.duration, total_tokens=testcase.token_usage)
                     # update tracker
                     self.tracker.set_test_generated(test_id, output=output, error=error)
                     # create testcase if not error

@@ -61,7 +61,8 @@ def main(judge: str, models: str, metrics: str, env: Path, testcases: str, verbo
             models=models_list,
             metrics=metrics_list,
             tests=None,  # Run all tests
-            invalidate_cache=not cache,
+            refresh_subject=not cache,
+            refresh_judge=not cache,
         ))
     except Exception as e:
         logger.exception("Evaluation failed")

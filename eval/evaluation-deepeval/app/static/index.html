@@ -631,10 +631,16 @@
           <div class="card">
             <div class="card-header">
               <div class="card-title">Run Evaluation</div>
-              <label class="toggle-label" style="margin:0;">
-                <input type="checkbox" id="invalidate-cache" />
-                Invalidate model cache
-              </label>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <label class="toggle-label" style="margin:0;" title="Rerun subject outputs and skip subject cache">
+                  <input type="checkbox" id="refresh-subject" />
+                  Refresh subject
+                </label>
+                <label class="toggle-label" style="margin:0;" title="Skip judge cache">
+                  <input type="checkbox" id="refresh-judge" />
+                  Refresh judge
+                </label>
+              </div>
             </div>
             <div class="card-body">
               <div class="btn-run-wrap" id="run-btn-wrap">
@@ -1890,8 +1896,9 @@ async function runEvalPayload(explicitTests) {
   }
 
   runMetricNames = [...selectedMetrics];
-  const invalidateCache = document.getElementById('invalidate-cache').checked;
-  const payload = { judge, models: modelsPayload, metrics: selectedMetrics, invalidate_cache: invalidateCache };
+  const refreshSubject = document.getElementById('refresh-subject').checked;
+  const refreshJudge = document.getElementById('refresh-judge').checked;
+  const payload = { judge, models: modelsPayload, metrics: selectedMetrics, refresh_subject: refreshSubject, refresh_judge: refreshJudge };
   if (explicitTests && explicitTests.length) payload.tests = explicitTests;
   else Object.assign(payload, buildOptionalTestsField());
 

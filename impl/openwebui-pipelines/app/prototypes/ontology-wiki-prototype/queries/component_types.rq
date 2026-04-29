@@ -1,0 +1,10 @@
+SELECT DISTINCT ?type
+WHERE {
+  ?s ?p ?o .
+  BIND(STR(?s) AS ?uri)
+  FILTER(CONTAINS(?uri, "Conveyor"))
+  BIND(REPLACE(?uri, "^.*?/([^/]+Conveyor)/.*$", "$1") AS ?type)
+  FILTER(CONTAINS(?type, "Conveyor"))
+}
+ORDER BY ?type
+LIMIT 100

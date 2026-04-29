@@ -1,0 +1,9 @@
+PREFIX aml: <https://w3id.org/hsu-aut/AutomationML#>
+
+SELECT DISTINCT ?station
+WHERE {
+  ?s aml:hasName ?station .
+  FILTER regex(str(?station), "^ST[0-9]+$")
+}
+ORDER BY ?station
+LIMIT 500

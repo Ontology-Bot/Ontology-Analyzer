@@ -94,16 +94,17 @@ class Evaluator:
                     raise
             
             logger.info(f"\tgot response for '{testcase['input']}' ({i}/{len(self._testcases)})")
-            logger.info(f"\trecorded usage: {usage.model_dump()} for model '{model}'")
+            recorded_usage = usage.model_dump() if usage else None
+            logger.info(f"\trecorded usage: {recorded_usage} for model '{model}'")
             
             # create testcase
             test_case = LLMTestCase(
                 input=testcase["input"],
                 actual_output=output,
                 expected_output=testcase["expected_output"],
-                additional_metadata=usage.model_dump(),
-                token_cost=usage.total_tokens,
-                completion_time=usage.duration
+                additional_metadata=recorded_usage,
+                token_cost=usage.total_tokens if usage else None,
+                completion_time=usage.duration if usage else None
             )
             deepeval_cases.append(test_case)
 

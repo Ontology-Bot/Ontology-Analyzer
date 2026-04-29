@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from typing import Awaitable
+import time
 
 from openai import AsyncOpenAI, OpenAI
 from ollama import Client, AsyncClient
@@ -13,13 +14,11 @@ from .llm_usage import LLMUsage
 import logging
 logger = logging.getLogger(__name__)
 
-import time
-
 def test_connection(client: LLMAdapter):
     try:
         client.list_models()
         return True
-    except Exception as e:
+    except Exception:
         return False
     
 class LLMAdapter(ABC):
@@ -77,6 +76,7 @@ class OpenAICompatAdapter(LLMAdapter):
         start = time.time()
         response = self.client.chat.completions.create(
             model=model,
+            stream=False,
             messages=[
                 {"role": "user", "content": message}
             ],
@@ -88,9 +88,9 @@ class OpenAICompatAdapter(LLMAdapter):
         # tool_calls = [tc.function for tc in response.choices[0].message.tool_calls if "function" in tc]
         u = response.usage
         usage = LLMUsage(
-            prompt_tokens=u.prompt_tokens,
-            completion_tokens=u.completion_tokens,
-            total_tokens=u.total_tokens,
+            prompt_tokens=getattr(u, "prompt_tokens", None),
+            completion_tokens=getattr(u, "completion_tokens", None),
+            total_tokens=getattr(u, "total_tokens", None),
             duration=duration
         )
         self._set_cached(model, message, output, usage)
@@ -103,6 +103,7 @@ class OpenAICompatAdapter(LLMAdapter):
         start = time.time()
         response = await self.a_client.chat.completions.create(
             model=model,
+            stream=False,
             messages=[
                 {"role": "user", "content": message}
             ],
@@ -113,12 +114,12 @@ class OpenAICompatAdapter(LLMAdapter):
         output = response.choices[0].message.content or ""
         u = response.usage
         usage = LLMUsage(
-            prompt_tokens=u.prompt_tokens,
-            completion_tokens=u.completion_tokens,
-            total_tokens=u.total_tokens,
+            prompt_tokens=getattr(u, "prompt_tokens", None),
+            completion_tokens=getattr(u, "completion_tokens", None),
+            total_tokens=getattr(u, "total_tokens", None),
             duration=duration
         )
-        self._set_cached(model, message, output)
+        self._set_cached(model, message, output, usage)
         return output, usage
     
     def test_model(self, model: str) -> str:
@@ -146,6 +147,7 @@ class OllamaAdapter(LLMAdapter):
 
         response = self.client.chat(
             model=model,
+            stream=False,
             messages=[{"role": "user", "content": message}],
             **kwargs
         )
@@ -165,6 +167,7 @@ class OllamaAdapter(LLMAdapter):
 
         response = await self.a_client.chat(
             model=model,
+            stream=False,
             messages=[{"role": "user", "content": message}],
             **kwargs
         )

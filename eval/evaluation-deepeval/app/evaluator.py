@@ -1,19 +1,30 @@
 from deepeval import evaluate
 from deepeval.test_case import LLMTestCase
-from deepeval.evaluate import ErrorConfig
+from deepeval.evaluate import ErrorConfig, DisplayConfig
+from deepeval.evaluate.types import EvaluationResult
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-from app.testcase_loader import load_testcases
+from app.testcase_loader import read_testcases
 from app.metrics import construct_metrics
-from app.llm_adapter import LLMUsage, test_connection, build_llm_adapter, LLMAdapterSettings
+from app.llm_adapter import LLMAdapter, LLMUsage, test_connection, build_llm_adapter, LLMAdapterSettings
 from app.llm_cache import LLMCache
 from app.metrics_impl.judge_wrapper import OpenAIBaseLLM, StubLLM
+
+from app.repo.snapshot import Snapshot, EvaluationRequest, EvaluationTracker
+from app.repo.repository import Repository
+
+
+def _test_model_throw(client: LLMAdapter, model_name: str):
+    err = client.test_model(model_name)
+    if err:
+        raise ValueError(f"ping model error '{model_name}': {err}")
 
 @dataclass
 class EvaluatorSettings:
@@ -25,25 +36,31 @@ class EvaluatorSettings:
 
 class Evaluator:
     def __init__(self, settings: EvaluatorSettings) -> None:
-        self.settings = settings
-        self._testcases = load_testcases(f"{settings.data_dir}/{settings.dataset_file}")
-        self._judge_cache = LLMCache(f"{settings.data_dir}/judge_cache") if settings.do_cache else None
-        self._subject_cache = LLMCache(f"{settings.data_dir}/subject_cache") if settings.do_cache else None
+        self._is_running = False
+        # open dir from settings and make sure it exists
+        self.path = Path(settings.data_dir)
+        self.path.mkdir(exist_ok=True, parents=True)
+        #
+        self._judge_cache = LLMCache(self.path / "judge_cache") if settings.do_cache else None
+        self._subject_cache = LLMCache(self.path / "subject_cache") if settings.do_cache else None
+        #
         self.reset_connection(settings.subject, settings.judge)
+        # load repo
+        self.repo = Repository(self.path / "repo")
+        self.tracker: EvaluationTracker | None = None
+        self.last_error: str | None = None
+        head = self.repo.get_at_head()
+        if self.repo.repo_id is None or head is None:
+            self.load_testcases(read_testcases(self.path / "golden-dataset.json"))
+        else:
+            self.snapshot = head
 
-    def get_config(self) -> EvaluatorSettings:
-        return self.settings
-        
-    def set_testcases(self, testcases: list[dict]):
-        self._testcases = testcases
-
-    def get_testcases(self):
-        return self._testcases
+    def is_running(self) -> bool:
+        return self._is_running
 
     def reset_connection(self, subject: LLMAdapterSettings, judge: LLMAdapterSettings):
         self._subject = build_llm_adapter(subject, self._subject_cache)
         self._judge = build_llm_adapter(judge, self._judge_cache)
-        
 
     def get_connection_status(self):
         return {
@@ -52,83 +69,94 @@ class Evaluator:
         }
     
     def get_metric_names(self):
-        return list(construct_metrics(StubLLM("")).keys())
+        metrics = construct_metrics(StubLLM(""))
+        return list(metrics.keys()) if metrics else []
+    
+    def load_testcases(self, testcases: dict):
+        self.snapshot = Snapshot.from_dataset(self.repo.get_at_head(), testcases)
+        self.repo.commit(self.snapshot)
 
-    def run_evaluation(self, judge: str, model: str, metric_list: list[str], invalidate_cache: bool = True, tracker: dict[str, int] | None = None):
-        judge_wrapper = OpenAIBaseLLM(judge, self._judge, invalidate_cache)
-        metrics = construct_metrics(judge_wrapper)
-        # validate input
-        if len(metric_list) == 0:
-            raise ValueError("no metrics providen")
-        # check so both models are available
-        err = self._subject.test_model(model)
-        if err:
-            raise ValueError(f"subject model error '{model}': {err}")
-        err = self._judge.test_model(judge)
-        if err:
-            raise ValueError(f"judge model error '{judge}': {err}")
+    def add_models(self, models: list[str]):
+        self.snapshot = Snapshot.from_task(self.snapshot, self.snapshot.task.model_copy(update={"models": models, "tests": []}))  # do not mark tests pending on add
+        self.repo.commit(self.snapshot)
+    
+    def run_evaluation(self, task: EvaluationRequest):
+        if self._is_running:
+            logger.error("Already running")
+            return
 
-        # get model responses and create deepeval cases
-        deepeval_cases = []
-        for i, testcase in enumerate(self._testcases):
-            output = testcase.get("output")
-            duration = testcase.get("duration")
-            total_tokens = testcase.get("token_usage")
-            usage = LLMUsage(duration=duration, total_tokens=total_tokens)
-            
-            if not output: # do completions
-                logger.info(f"\tawaiting model completion for '{testcase['input']}' ({i}/{len(self._testcases)})")
-                if tracker:
-                    tracker["tests_generated"] += 1
-                
-                try:
-                    output, usage = self._subject.chat_text(model, testcase["input"], invalidate_cache) or ""
+        self.last_error = None
+        self._is_running = True
+        try:
+            # validate input
+            if len(task.metrics) == 0:
+                raise ValueError("no metrics providen")
+            # judge must be available
+            _test_model_throw(self._judge, task.judge)
+            judge_wrapper = OpenAIBaseLLM(task.judge, self._judge, task.refresh_judge)
+            # build metric list
+            metrics = construct_metrics(judge_wrapper, task.metrics)
 
-                except Exception as e:
-                    import traceback
-                    logger.error(f"Invalid response from model {model}")
-                    logger.exception(traceback.print_exc())
-                    output = ""
-                    if tracker:
-                        tracker["errors"] += 1
-                    raise
-            
-            logger.info(f"\tgot response for '{testcase['input']}' ({i}/{len(self._testcases)})")
-            recorded_usage = usage.model_dump() if usage else None
-            logger.info(f"\trecorded usage: {recorded_usage} for model '{model}'")
-            
-            # create testcase
-            test_case = LLMTestCase(
-                input=testcase["input"],
-                actual_output=output,
-                expected_output=testcase["expected_output"],
-                additional_metadata=recorded_usage,
-                token_cost=usage.total_tokens if usage else None,
-                completion_time=usage.duration if usage else None
+            # create new snapshot
+            if self.snapshot is None:
+                raise ValueError("No snapshot loaded")
+            snapshot = Snapshot.from_task(self.snapshot, task)
+
+            self.tracker = EvaluationTracker(
+                request=snapshot.task,
+                snapshot=snapshot,
             )
-            deepeval_cases.append(test_case)
+            # for each model
+            for model in task.models:
+                self.tracker.set_current_model(model)
+                deepeval_cases = []
+                for test_id, testcase in self.tracker.get_current_tests().items():
+                    body = self.tracker.get_test_body(test_id)
+                    output = testcase.output  # not nice (tracker must expose readonly test body) TODO
+                    error = None
+                    usage = None
+                    # do completions
+                    if not output or task.refresh_subject:
+                        try:
+                            output, usage = self._subject.chat_text(model, body.input, task.refresh_subject)
+                        except Exception as exc:
+                            logger.exception("Invalid response from model %s", model)
+                            error = str(exc)
+                    else:
+                        logger.info(f"Using preset output for model {model} test '{test_id}'")
+                        usage = LLMUsage(duration=testcase.duration, total_tokens=testcase.token_usage)
+                    # update tracker
+                    self.tracker.set_test_generated(test_id, output=output, error=error)
+                    # create testcase if not error
+                    if output and not error:
+                        deepeval_cases.append(
+                            LLMTestCase(
+                                name=test_id,
+                                input=body.input,
+                                actual_output=output,
+                                expected_output=body.expected_output,
+                                additional_metadata=usage.model_dump() if usage else None,
+                                token_cost=usage.total_tokens if usage else None,
+                                completion_time=usage.duration if usage else None
+                            ))
+                # run evaluation
+                results = evaluate(
+                    deepeval_cases,
+                    list(metrics.values()),
+                    error_config=ErrorConfig(ignore_errors=True),  # allow metrics to fail
+                    display_config=DisplayConfig(show_indicator=False, print_results=False)
+                )
+                # put results
+                for r in results.test_results:
+                    self.tracker.set_test_result(r.name, r)
 
-        logger.info(f"completions for model '{model}' done")
-            
-        # select metrics
-        selected_metrics = []
-        for name in metric_list:
-            if name not in metrics:
-                raise ValueError(f"Unknown metric '{name}'")
-            selected_metrics.append(metrics[name])
-
-        # run evaluation
-        results = evaluate(deepeval_cases, selected_metrics, error_config=ErrorConfig(
-            ignore_errors=True # allow metrics to fail
-        ))
-
-        # update stats
-        if tracker:
-            tracker["tests_ran"] += len(deepeval_cases)
-
-            for tr in results.test_results:
-                for mr in tr.metrics_data or []:
-                    if mr.error:
-                        tracker["errors"] += 1
-
-        return results
+            self.repo.commit(self.tracker.snapshot)
+            self.snapshot = self.tracker.snapshot
+            self.last_error = None
+            return self.tracker
+        except Exception as exc:
+            logger.exception("Evaluation failed")
+            self.last_error = str(exc)
+            return None
+        finally:
+            self._is_running = False

@@ -2,24 +2,24 @@ from fastapi import FastAPI, UploadFile, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
-from .scheuduler import Scheduler
+from app.repo.snapshot import EvaluationRequest
+
 from .evaluator import Evaluator
 from .config import get_config
 
 import json
 import os
-import glob
 
 from functools import reduce
 
 import logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 app = FastAPI()
 
 evaluator = Evaluator(get_config(cache=True))
-scheduler = Scheduler(evaluator)
 
 # UI
 from pathlib import Path
@@ -30,12 +30,26 @@ async def serve_ui():
     ui_path = Path(__file__).parent / "static" / "index.html"
     return HTMLResponse(content=ui_path.read_text(encoding="utf-8"))
     
+def _normalize_upload_dataset(raw) -> dict: # TODO is it required?
+    """Build a dataset dict with name + tests for Snapshot.from_dataset."""
+    if isinstance(raw, list):
+        return {"name": "uploaded-dataset", "tests": raw}
+    if isinstance(raw, dict):
+        tests = raw.get("tests")
+        if not isinstance(tests, list):
+            raise HTTPException(status_code=400, detail="JSON must contain a 'tests' array")
+        name = raw.get("name") or "uploaded-dataset"
+        return {"name": name, "tests": tests, "model": raw.get("model")}
+    raise HTTPException(status_code=400, detail="JSON must be an object or a tests array")
+
+
 @app.post("/upload-testcases/")
 async def upload(file: UploadFile):
     logger.info("received upload testcases request")
     data = json.loads((await file.read()).decode())
-    evaluator.set_testcases(data["tests"])
-    return {"status": "uploaded", "count": len(data["tests"])}
+    dataset = _normalize_upload_dataset(data)
+    evaluator.load_testcases(dataset)
+    return {"status": "uploaded", "count": len(dataset["tests"])}
 
 
 class ConfigRequest(BaseModel):
@@ -80,53 +94,76 @@ async def set_config(cr: ConfigRequest):
 @app.get("/config/status/")
 async def get_config_status():
     return evaluator.get_connection_status()
-
-class EvalRequest(BaseModel):
-    judge: str
-    models: list[str]
-    metrics: list[str]
-    invalidate_cache: bool = False
  
 @app.post("/evaluate/")
-async def evaluate_models(req: EvalRequest, background_tasks: BackgroundTasks):
-    if scheduler.is_running():
+async def evaluate_models(req: EvaluationRequest, background_tasks: BackgroundTasks):
+    if evaluator.is_running():
         raise HTTPException(status_code=409, detail="Evaluation already in progress")
 
-    scheduler.state["judge"] = req.judge
-    scheduler.state["models"] = req.models
-    scheduler.state["metrics"] = req.metrics
-    scheduler.state["invalidate_cache"] = req.invalidate_cache
-    scheduler.state["last_result_file"] = None
-
     background_tasks.add_task(
-        scheduler.run_evaluation_task,
-        req.judge,
-        req.models,
-        req.metrics,
-        req.invalidate_cache
+        evaluator.run_evaluation, req
     )
 
     return {"status": "started"}
     
 @app.get("/status/")
 async def get_status():
-    return scheduler.state
+    """UI: running + snapshot, idle, or error after failed background evaluation."""
+    if evaluator.is_running():
+        tracker = evaluator.tracker
+        if tracker is None:
+            return {"status": "running", "summary": None, "snapshot": None, "error": None}
+        return {
+            "status": "running",
+            "summary": tracker.summary.model_dump(),
+            "snapshot": tracker.snapshot.model_dump(),
+            "error": None,
+        }
+    if evaluator.last_error:
+        return {"status": "error", "error": evaluator.last_error, "judge": None, "summary": None, "snapshot": None}
+    return {"status": "idle", "judge": None, "error": None, "summary": None, "snapshot": None}
 
 @app.get("/metrics/")
 async def get_metrics_list():
     return evaluator.get_metric_names()
 
+# @app.get("/models/")
+# async def get_models_list():
+#     return evaluator.snapshot.task.models
+
+@app.post("/models/")
+async def add_models_list(models: list[str]):
+    evaluator.add_models(models)
+
 @app.get("/results/")
 async def list_results():
-    return scheduler.list_results()
+    return evaluator.repo.list()
  
 @app.post("/results/clear")
 async def clear_results():
-    return scheduler.clear_results()
- 
-@app.get("/results/{filename}")
-async def get_result(filename: str):
-    result = scheduler.get_result(filename) 
+    return evaluator.repo.drop()
+
+@app.post("/results/clear/{timestamp}")
+async def clear_results_at(timestamp: str):
+    return evaluator.repo.drop_at_timestamp(timestamp)
+
+@app.get("/results/{timestamp}")
+async def get_result(timestamp: str):
+    result = evaluator.repo.get_at_timestamp(timestamp) 
     if not result:
         raise HTTPException(status_code=404, detail="Not found")
     return result
+
+
+@app.get("/results/{timestamp}/summary")
+async def get_result_summary(timestamp: str):
+    """Pandas aggregates for Scientific Summary UI (disk snapshot or live run)."""
+    from app.repo.analytics import build_summary
+
+    if timestamp == "live":
+        snapshot = evaluator.tracker.snapshot if evaluator.tracker else None
+    else:
+        snapshot = evaluator.repo.get_at_timestamp(timestamp)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="snapshot not found")
+    return build_summary(snapshot)

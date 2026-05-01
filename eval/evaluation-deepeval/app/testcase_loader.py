@@ -3,11 +3,13 @@ from pathlib import Path
 from deepeval.test_case import LLMTestCase, ToolCall
 from typing import Any
 
+from pathlib import Path
+
 # https://deepeval.com/docs/evaluation-test-cases
 
-def load_testcases(path="data/golden-dataset.json") -> list[dict[str, Any]]:
+def read_testcases(path: Path) -> dict:
     if Path(path).exists():
         with open(path) as f:
-            return json.load(f)["tests"]
+            return json.load(f)
     else:
-        return []
+        return {}

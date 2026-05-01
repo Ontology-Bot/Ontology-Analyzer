@@ -147,7 +147,7 @@
     letter-spacing: 0.4px;
   }
 
-  input[type=text], input[type=password] {
+  input[type=text], input[type=password], select {
     width: 100%;
     background: var(--bg);
     border: 1px solid var(--border);
@@ -159,7 +159,7 @@
     outline: none;
     transition: border-color 0.15s;
   }
-  input[type=text]:focus, input[type=password]:focus { border-color: var(--accent); }
+  input[type=text]:focus, input[type=password]:focus, select:focus { border-color: var(--accent); }
   input[type=text]::placeholder, input[type=password]::placeholder { color: var(--text-dim); opacity: 0.6; }
 
   /* password show/hide */
@@ -538,6 +538,14 @@
             <div class="section">
               <div class="section-label">Evaluation Config</div>
               <div class="field">
+                <label class="field-label">Run Mode</label>
+                <select id="run-mode">
+                  <option value="evaluate">evaluate</option>
+                  <option value="generate_only">generate_only</option>
+                </select>
+                <div class="hint info" id="mode-hint" style="margin-top:6px;"></div>
+              </div>
+              <div class="field">
                 <label class="field-label">Judge Model</label>
                 <input type="text" id="judge-input" placeholder="e.g. gpt-4o" />
               </div>
@@ -693,6 +701,7 @@
     <div class="detail-actions">
       <button class="btn btn-ghost" id="back-btn">← Back</button>
       <div style="flex:1;"></div>
+      <div class="btn-row" id="dataset-downloads"></div>
       <button class="btn btn-ghost btn-sm" id="download-btn">↓ Download JSON</button>
     </div>
     <div class="detail-header">
@@ -711,12 +720,13 @@ const LS = {
   JUDGE_MODEL: 'deval_judge',
   MODELS: 'deval_models',
   METRICS: 'deval_metrics',
+  RUN_MODE: 'deval_run_mode',
   SUBJECT_URL: 'deval_subject_url',
   SUBJECT_KEY: 'deval_subject_key',
   JUDGE_URL: 'deval_judge_url',
   JUDGE_KEY: 'deval_judge_key',
   SUBJECT_PROVIDER: 'deval_subject_provider',
-  JUDGE_PROVIDER: 'deval_subject_provider',
+  JUDGE_PROVIDER: 'deval_judge_provider',
 };
 
 // ─── State ──────────────────────────────────────────────────────────────────
@@ -726,6 +736,7 @@ let availableMetrics = [];
 let pollTimer = null;
 let currentDetailFilename = null;
 let currentDetailData = null;
+let currentRunMode = 'evaluate';
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
@@ -744,6 +755,7 @@ window.addEventListener('DOMContentLoaded', () => {
   // Judge model cache
   document.getElementById('judge-input').addEventListener('input', () =>
     localStorage.setItem(LS.JUDGE_MODEL, document.getElementById('judge-input').value));
+  document.getElementById('run-mode').addEventListener('change', syncRunModeUI);
 
   // Model tags
   const tagInput = document.getElementById('model-tag-input');
@@ -794,6 +806,8 @@ window.addEventListener('DOMContentLoaded', () => {
 async function restoreCache() {
   const j = localStorage.getItem(LS.JUDGE_MODEL);
   if (j) document.getElementById('judge-input').value = j;
+  document.getElementById('run-mode').value = localStorage.getItem(LS.RUN_MODE) || 'evaluate';
+  syncRunModeUI();
   try { const m = JSON.parse(localStorage.getItem(LS.MODELS) || '[]'); m.forEach(addTag); } catch(e) {}
 
   // Preload API fields: server is source of truth, fallback to localStorage
@@ -826,6 +840,32 @@ async function restoreCache() {
   setVal('judge-provider', localStorage.getItem(LS.JUDGE_PROVIDER));
 }
 function setVal(id, val) { if (val) document.getElementById(id).value = val; }
+
+function formatMode(mode) {
+  return mode === 'generate_only' ? 'generate-only' : 'evaluate';
+}
+
+function syncRunModeUI() {
+  currentRunMode = document.getElementById('run-mode').value || 'evaluate';
+  localStorage.setItem(LS.RUN_MODE, currentRunMode);
+
+  const isGenerateOnly = currentRunMode === 'generate_only';
+  const modeHint = document.getElementById('mode-hint');
+  const runBtn = document.getElementById('run-btn');
+  const metricsList = document.getElementById('metrics-list');
+  const judgeInput = document.getElementById('judge-input');
+
+  runBtn.textContent = isGenerateOnly ? '▶ Generate Outputs' : '▶ Run Evaluation';
+  judgeInput.placeholder = isGenerateOnly ? 'optional in generate-only mode' : 'e.g. gpt-4o';
+  modeHint.textContent = isGenerateOnly
+    ? 'Skips judge and metrics, then saves one dataset file per subject model.'
+    : 'Runs subject generation and metric-based evaluation.';
+
+  metricsList.style.opacity = isGenerateOnly ? '0.55' : '1';
+  metricsList.querySelectorAll('input').forEach(input => {
+    input.disabled = isGenerateOnly;
+  });
+}
 
 // ─── API Config save (unified) ────────────────────────────────────────────────
 async function saveAllApiConfig() {
@@ -965,6 +1005,7 @@ function renderMetricsList() {
     });
     el.appendChild(item);
   });
+  syncRunModeUI();
 }
 
 // ─── Tags ─────────────────────────────────────────────────────────────────────
@@ -994,11 +1035,13 @@ function renderTags() {
 
 // ─── Run Eval ─────────────────────────────────────────────────────────────────
 async function runEval() {
+  const mode = currentRunMode;
   const judge = document.getElementById('judge-input').value.trim();
   const hint = document.getElementById('run-hint');
   hint.textContent = '';
-  if (!judge) { hint.textContent = 'Judge model is required'; return; }
   if (!models.length) { hint.textContent = 'Add at least one subject model'; return; }
+  if (mode === 'evaluate' && !judge) { hint.textContent = 'Judge model is required'; return; }
+  if (mode === 'evaluate' && !selectedMetrics.length) { hint.textContent = 'Select at least one metric'; return; }
 
   const invalidateCache = document.getElementById('invalidate-cache').checked;
 
@@ -1008,7 +1051,7 @@ async function runEval() {
     const r = await fetch('/evaluate/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ judge, models, metrics: selectedMetrics, invalidate_cache: invalidateCache })
+      body: JSON.stringify({ judge, models, metrics: selectedMetrics, invalidate_cache: invalidateCache, mode })
     });
     if (!r.ok) {
       const e = await r.json();
@@ -1060,16 +1103,21 @@ function updateStatusUI(s) {
 
   if (s.status === 'running') {
     const p = s.progress || {};
-    detail.textContent = p.current_model ? `model: ${p.current_model}` : '';
+    detail.textContent = p.current_model ? `mode: ${formatMode(s.mode)} | model: ${p.current_model}` : `mode: ${formatMode(s.mode)}`;
     grid.style.display = 'grid';
     const tg = p.tests_generated ?? 0;
     const tr = p.tests_ran ?? 0;
     document.getElementById('prog-generated').textContent = tg;
     document.getElementById('prog-ran').textContent = tr;
-    document.getElementById('prog-total').textContent = `${p.total ? Math.round((tr+tg) / (2*p.total)*100) : 0}%`;
+    const pct = s.mode === 'generate_only'
+      ? (p.total ? Math.round(tg / p.total * 100) : 0)
+      : (p.total ? Math.round((tr + tg) / (2 * p.total) * 100) : 0);
+    document.getElementById('prog-total').textContent = `${pct}%`;
     document.getElementById('prog-errors').textContent = `${p.errors ?? 0}`;
   } else {
-    detail.textContent = s.status === 'error' ? (s.error || '') : (s.judge ? `judge: ${s.judge}` : '');
+    detail.textContent = s.status === 'error'
+      ? (s.error || '')
+      : `mode: ${formatMode(s.mode)}${s.judge ? ` | judge: ${s.judge}` : ''}`;
     grid.style.display = 'none';
   }
 }
@@ -1091,22 +1139,32 @@ function renderResultsList(list) {
     row.className = 'result-row';
     const ts = formatTimestamp(item.timestamp);
     const metricsHtml = (item.metrics || []).map(m => `<span class="metric-pill">${esc(m)}</span>`).join('') || '<span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">none</span>';
-    const statsHtml = Object.entries(item.pass_rates || {}).map(([m, s], idx) => {
-      const pct = s && s[1] > 0 ? Math.round(s[0] / s[1] * 100) : 0;
-      const errors = s && s[2] || 0;
-      const cls = pct >= 80 ? 'good' : pct >= 50 ? 'mid' : 'bad';
-      return `<div class="model-stat">
+    const statsHtml = item.mode === 'generate_only'
+      ? Object.entries(item.generated_counts || {}).map(([m, total], idx) => `
+      <div class="model-stat">
         <span class="ms-name" style="min-width:6px;">subject #${idx+1}:</span>
         <span class="model-chip">${esc(m)}</span>
-        <span class="pass-badge ${cls}">${pct}%</span>
-        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">${s[0]}/${s[1]} passed (${errors} errors)</span>
-      </div>`;
-    }).join('');
+        <span class="pass-badge good">dataset ready</span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">${total} generated${item.dataset_artifacts && item.dataset_artifacts[m] ? ` | ${esc(item.dataset_artifacts[m])}` : ''}</span>
+      </div>`).join('')
+      : Object.entries(item.pass_rates || {}).map(([m, s], idx) => {
+        const pct = s && s[1] > 0 ? Math.round(s[0] / s[1] * 100) : 0;
+        const errors = s && s[2] || 0;
+        const cls = pct >= 80 ? 'good' : pct >= 50 ? 'mid' : 'bad';
+        return `<div class="model-stat">
+          <span class="ms-name" style="min-width:6px;">subject #${idx+1}:</span>
+          <span class="model-chip">${esc(m)}</span>
+          <span class="pass-badge ${cls}">${pct}%</span>
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">${s[0]}/${s[1]} passed (${errors} errors)</span>
+        </div>`;
+      }).join('');
 
     row.innerHTML = `
       <div class="result-meta" style="flex:1;">
         <span class="result-ts" style="min-width:0;margin-bottom:8px;">${esc(ts)}</span>
         <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px;">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">mode:</span>
+          <span class="model-chip">${esc(formatMode(item.mode))}</span>
           <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">judge:</span>
           <span class="model-chip">${esc(item.judge || '—')}</span>
         </div>
@@ -1138,7 +1196,9 @@ async function openResult(filename, ts, meta) {
 
   document.getElementById('detail-title').textContent = `Run — ${ts}`;
   document.getElementById('detail-meta').textContent =
-    `judge: ${meta.judge || '—'}   |   models: ${(meta.models || []).join(', ')}   |   metrics: ${(meta.metrics || []).join(', ')}`;
+    `mode: ${formatMode(meta.mode)}   |   judge: ${meta.judge || '—'}   |   models: ${(meta.models || []).join(', ')}   |   metrics: ${(meta.metrics || []).join(', ') || 'none'}`;
+
+  renderDatasetButtons(data.dataset_artifacts || {});
 
   showDetail();
 
@@ -1169,6 +1229,29 @@ async function openResult(filename, ts, meta) {
   });
   viewer.innerHTML = renderJson(results[modelKeys[0]]);
   attachToggleListeners(viewer);
+}
+
+function renderDatasetButtons(artifacts) {
+  const container = document.getElementById('dataset-downloads');
+  container.innerHTML = '';
+  Object.entries(artifacts).forEach(([model, filename]) => {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-ghost btn-sm';
+    btn.textContent = `↓ Dataset ${model}`;
+    btn.addEventListener('click', () => downloadDatasetArtifact(model, filename));
+    container.appendChild(btn);
+  });
+}
+
+async function downloadDatasetArtifact(model, filename) {
+  if (!currentDetailFilename) return;
+  const r = await fetch(`/results/${encodeURIComponent(currentDetailFilename)}/dataset?model=${encodeURIComponent(model)}`);
+  if (!r.ok) return;
+  const blob = await r.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename || `${model}.json`;
+  a.click();
 }
 
 function downloadCurrentResult() {

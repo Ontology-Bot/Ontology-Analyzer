@@ -9,19 +9,22 @@ To run gui, use `uv run uvicorn app.gui:app --reload`. By default, UI is launche
 
 #### Featuress:
 - Select models, judge, metrics and run tests (make sure that models you list exist)
+- Run in `generate_only` mode to skip judge/metric evaluation and save reusable dataset files with model outputs
 - Change API keys and base URLs; check connectivity
 - Upload testcases
 - Navigate through test results with % of tests completed preview
+- Download generated dataset artifacts per subject model from the result detail view
 - **Note** All uploaded information is stored in session, not in container! If application is restarted, data will stay in form fields, but you need to reapply it manually (hit save, load testcases again)
 
 ### CLI
-To launch project as cli, use `uv run -m app.cli <judge_model> <subject_models (comma sep)> <metrics (comma sep)> --env <env file> --testcases <golden-dataset.json>`
+To launch project as cli, use `uv run -m app.cli <judge_model> <subject_models (comma sep)> <metrics (comma sep)> --env <env file> --testcases <golden-dataset.json> --mode <evaluate|generate_only>`
 
 - judge model - name of a model, which is going to perform judging *for LLM-based metrics*.
 - subject models - model name(s), which are going to be tested
 - metrics - metric name(s), which are going to be used for evaluation. see `metrics.py` for names
 - testcases - `.json` file with testcases. Format is specified below
 - env - env file with API keys and base URLs. Format is specified below
+- mode - use `evaluate` for the normal flow or `generate_only` to only generate subject outputs and save reusable datasets
 
 ### Development
 - for partial runs, use `main.py` and launch it as `uv run main.py`
@@ -52,6 +55,23 @@ This file has following structure:
 
 - `input` and `expected_output` are mandatory.
 - You may use `output` field to skip model call. Keep in mind `output` will be used for ALL models specified for the test run - use only when you test ONE model
+
+### Generate-only mode
+`generate_only` skips judge setup and metric execution. For each selected subject model, the app saves a dataset artifact in the results directory using the same structure as `golden-dataset.json`:
+
+```
+{"tests": [{
+  "input": "...",
+  "expected_output": "...",
+  "output": "...",
+  "duration": "...",
+  "token_usage": "..."
+}]}
+```
+
+- GUI: select `generate_only`, run the job, then open the result and download the dataset for the subject model you want.
+- CLI: use `--mode generate_only`; the command prints the saved dataset filenames after completion.
+- Reuse: pass the generated dataset back through `--testcases` or upload it in the GUI. Since the dataset now includes `output`, the evaluator reuses those results and skips the subject model call on the next run.
 
 ### Project structure:
 - `app`

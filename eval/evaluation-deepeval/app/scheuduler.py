@@ -1,14 +1,14 @@
-
 import json
 import os
 import glob
+import re
 from datetime import datetime
 
 import logging
+from app.evaluator import Evaluator
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-from app.evaluator import Evaluator
 
 class Scheduler:
     def __init__(self, evaluator: Evaluator) -> None:
@@ -16,6 +16,7 @@ class Scheduler:
         self.data_dir = evaluator.get_config().data_dir
         self.state = {
             "status": "idle",       # idle | running | done | error
+            "mode": "evaluate",
             "judge": "",
             "models": [],
             "metrics": [],
@@ -33,26 +34,61 @@ class Scheduler:
 
     def is_running(self) -> bool:
         return self.state["status"] == "running"
+
+    def _sanitize_name(self, value: str) -> str:
+        sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
+        return sanitized.strip("._") or "model"
+
+    def _dataset_artifact_path(self, filename: str):
+        safe_name = os.path.basename(filename)
+        return os.path.join(self.data_dir, safe_name)
+
+    def store_dataset_artifact(self, timestamp: str, model: str, generated_cases: list[dict]):
+        filename = f"dataset_{timestamp}_{self._sanitize_name(model)}.json"
+        filepath = self._dataset_artifact_path(filename)
+        with open(filepath, "w") as f:
+            json.dump({
+                "tests": [
+                    {
+                        "input": testcase["input"],
+                        "expected_output": testcase["expected_output"],
+                        "output": testcase["output"],
+                        "duration": testcase["duration"],
+                        "token_usage": testcase["token_usage"],
+                    }
+                    for testcase in generated_cases
+                ]
+            }, f, indent=2)
+        return filename
  
-    def run_evaluation_task(self, judge: str, models: list[str], metrics: list[str], invalidate_cache: bool = False):
+    def run_evaluation_task(self, judge: str, models: list[str], metrics: list[str], invalidate_cache: bool = False, mode: str = "evaluate"):
         try:
             self.state["status"] = "running"
+            self.state["mode"] = mode
             self.state["error"] = None
             self.state["progress"]["errors"] = 0
             self.state["progress"]["tests_ran"] = 0
             self.state["progress"]["tests_generated"] = 0
             self.state["progress"]["total"] = len(models) * len(self.evaluator.get_testcases())
  
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             all_results = {}
+            dataset_artifacts = {}
             for model in models:
                 tracker = self.state["progress"]
                 tracker["current_model"] = model
-                logger.info(f"running evaluation for model '{model}'")
-                result = self.evaluator.run_evaluation(judge, model, metrics, invalidate_cache, tracker)
-                all_results[model] = result.model_dump()
+                if mode == "generate_only":
+                    logger.info(f"running generation-only flow for model '{model}'")
+                    generated_cases = self.evaluator.prepare_subject_outputs(model, invalidate_cache, tracker)
+                    all_results[model] = self.evaluator.create_test_results(generated_cases)
+                    dataset_artifacts[model] = self.store_dataset_artifact(timestamp, model, generated_cases)
+                else:
+                    logger.info(f"running evaluation for model '{model}'")
+                    result = self.evaluator.run_evaluation(judge, model, metrics, invalidate_cache, tracker)
+                    all_results[model] = result.model_dump()
  
             # Save to timestamped file
-            self.store_result(judge, models, metrics, all_results)
+            self.store_result(timestamp, judge, models, metrics, all_results, mode, dataset_artifacts)
             self.state["status"] = "done"
  
         except Exception as e:
@@ -61,13 +97,14 @@ class Scheduler:
             self.state["error"] = str(e)
 
     
-    def store_result(self, judge: str, models: list[str], metrics: list[str], all_results: dict):
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    def store_result(self, timestamp: str, judge: str, models: list[str], metrics: list[str], all_results: dict, mode: str = "evaluate", dataset_artifacts: dict[str, str] | None = None):
         result = {
             "timestamp": timestamp,
+            "mode": mode,
             "judge": judge,
             "models": models,
             "metrics": metrics,
+            "dataset_artifacts": dataset_artifacts or {},
             "results": all_results
         }
         filepath = os.path.join(self.data_dir, f"r_{timestamp}.json")
@@ -85,13 +122,18 @@ class Scheduler:
                 with open(f) as fp:
                     data = json.load(fp)
                 # calculate pass rate
+                mode = data.get("mode", "evaluate")
                 pass_rates = {}
+                generated_counts = {}
                 metrics = data.get("metrics", [])
                 models = data.get("models", [])
                 tests_res = data.get("results", {})
                 for m, entry in tests_res.items():
-                    tests = entry["test_results"]
+                    tests = entry.get("test_results", [])
                     total = len(tests)
+                    if mode == "generate_only":
+                        generated_counts[m] = total
+                        continue
                     passed = 0
                     errors = 0
                     for tr in tests:
@@ -106,10 +148,13 @@ class Scheduler:
                 results.append({
                     "filename": name,
                     "timestamp": data.get("timestamp", ts),
+                    "mode": mode,
                     "judge": data.get("judge", ""),
                     "models": models,
                     "metrics": metrics,
-                    "pass_rates": pass_rates
+                    "pass_rates": pass_rates,
+                    "generated_counts": generated_counts,
+                    "dataset_artifacts": data.get("dataset_artifacts", {})
                 })
             except Exception:
                 import traceback
@@ -120,6 +165,8 @@ class Scheduler:
     def clear_results(self):
         logger.warning("Deleting ALL results")
         for f in glob.glob(os.path.join(self.data_dir, "r_*.json")):
+            os.remove(f)
+        for f in glob.glob(os.path.join(self.data_dir, "dataset_*.json")):
             os.remove(f)
         for f in glob.glob(os.path.join(self.data_dir, "*")):
             # Check if it is a file and has no extension
@@ -132,3 +179,15 @@ class Scheduler:
             return None
         with open(filepath) as f:
             return json.load(f)
+
+    def get_result_dataset_artifact(self, filename: str, model: str):
+        result = self.get_result(filename)
+        if not result:
+            return None
+        artifact_name = (result.get("dataset_artifacts") or {}).get(model)
+        if not artifact_name:
+            return None
+        artifact_path = self._dataset_artifact_path(artifact_name)
+        if not os.path.exists(artifact_path):
+            return None
+        return artifact_path

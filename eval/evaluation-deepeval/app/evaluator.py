@@ -1,19 +1,21 @@
 from deepeval import evaluate
-from deepeval.test_case import LLMTestCase
 from deepeval.evaluate import ErrorConfig
+from deepeval.test_case import LLMTestCase
 
 from dataclasses import dataclass
+from typing import Any
 
 import logging
+
+from app.llm_adapter import LLMAdapterSettings, LLMUsage, build_llm_adapter, test_connection
+from app.llm_cache import LLMCache
+from app.metrics import construct_metrics
+from app.metrics_impl.judge_wrapper import OpenAIBaseLLM, StubLLM
+from app.testcase_loader import load_testcases
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-
-from app.testcase_loader import load_testcases
-from app.metrics import construct_metrics
-from app.llm_adapter import LLMUsage, test_connection, build_llm_adapter, LLMAdapterSettings
-from app.llm_cache import LLMCache
-from app.metrics_impl.judge_wrapper import OpenAIBaseLLM, StubLLM
 
 @dataclass
 class EvaluatorSettings:
@@ -22,6 +24,7 @@ class EvaluatorSettings:
     judge: LLMAdapterSettings
     subject: LLMAdapterSettings
     dataset_file: str = "golden-dataset.json"
+
 
 class Evaluator:
     def __init__(self, settings: EvaluatorSettings) -> None:
@@ -33,7 +36,7 @@ class Evaluator:
 
     def get_config(self) -> EvaluatorSettings:
         return self.settings
-        
+
     def set_testcases(self, testcases: list[dict]):
         self._testcases = testcases
 
@@ -42,90 +45,126 @@ class Evaluator:
 
     def reset_connection(self, subject: LLMAdapterSettings, judge: LLMAdapterSettings):
         self._subject = build_llm_adapter(subject, self._subject_cache)
-        self._judge = build_llm_adapter(judge, self._judge_cache)
-        
+        try:
+            self._judge = build_llm_adapter(judge, self._judge_cache)
+        except ValueError:
+            self._judge = None
 
     def get_connection_status(self):
         return {
             "subject": test_connection(self._subject),
-            "judge": test_connection(self._judge),
+            "judge": test_connection(self._judge) if self._judge else False,
         }
-    
+
     def get_metric_names(self):
         return list(construct_metrics(StubLLM("")).keys())
 
+    def _needs_subject_generation(self) -> bool:
+        return any(testcase.get("output") is None for testcase in self._testcases)
+
+    def _build_generated_case(self, testcase: dict[str, Any], output: str, usage: LLMUsage | None):
+        return {
+            "input": testcase["input"],
+            "expected_output": testcase["expected_output"],
+            "output": output,
+            "duration": usage.duration if usage else None,
+            "token_usage": usage.total_tokens if usage else None,
+            "additional_metadata": usage.model_dump() if usage else None,
+        }
+
+    def prepare_subject_outputs(self, model: str, invalidate_cache: bool = True, tracker: dict[str, int] | None = None):
+        if self._needs_subject_generation():
+            err = self._subject.test_model(model)
+            if err:
+                raise ValueError(f"subject model error '{model}': {err}")
+
+        generated_cases = []
+        total_cases = len(self._testcases)
+        for i, testcase in enumerate(self._testcases):
+            if tracker:
+                tracker["tests_generated"] += 1
+
+            output = testcase.get("output")
+            usage = LLMUsage(
+                duration=testcase.get("duration"),
+                total_tokens=testcase.get("token_usage"),
+            )
+
+            if output is None:
+                logger.info(f"\tawaiting model completion for '{testcase['input']}' ({i}/{total_cases})")
+                try:
+                    output, usage = self._subject.chat_text(model, testcase["input"], invalidate_cache) or ("", LLMUsage())
+                except Exception:
+                    logger.exception(f"Invalid response from model {model}")
+                    if tracker:
+                        tracker["errors"] += 1
+                    raise
+
+            output = output or ""
+            logger.info(f"\tgot response for '{testcase['input']}' ({i}/{total_cases})")
+            generated_case = self._build_generated_case(testcase, output, usage)
+            logger.info(f"\trecorded usage: {generated_case['additional_metadata']} for model '{model}'")
+            generated_cases.append(generated_case)
+
+        logger.info(f"completions for model '{model}' done")
+        return generated_cases
+
+    def create_test_results(self, generated_cases: list[dict[str, Any]]):
+        return {
+            "test_results": [
+                {
+                    "input": testcase["input"],
+                    "actual_output": testcase["output"],
+                    "expected_output": testcase["expected_output"],
+                    "additional_metadata": testcase["additional_metadata"],
+                    "token_cost": testcase["token_usage"],
+                    "completion_time": testcase["duration"],
+                }
+                for testcase in generated_cases
+            ]
+        }
+
     def run_evaluation(self, judge: str, model: str, metric_list: list[str], invalidate_cache: bool = True, tracker: dict[str, int] | None = None):
-        judge_wrapper = OpenAIBaseLLM(judge, self._judge, invalidate_cache)
-        metrics = construct_metrics(judge_wrapper)
-        # validate input
         if len(metric_list) == 0:
             raise ValueError("no metrics providen")
-        # check so both models are available
-        err = self._subject.test_model(model)
-        if err:
-            raise ValueError(f"subject model error '{model}': {err}")
+        if self._judge is None:
+            raise ValueError("judge adapter not configured")
+
+        judge_wrapper = OpenAIBaseLLM(judge, self._judge, invalidate_cache)
+        metrics = construct_metrics(judge_wrapper)
+
         err = self._judge.test_model(judge)
         if err:
             raise ValueError(f"judge model error '{judge}': {err}")
 
-        # get model responses and create deepeval cases
+        generated_cases = self.prepare_subject_outputs(model, invalidate_cache, tracker)
         deepeval_cases = []
-        for i, testcase in enumerate(self._testcases):
-            output = testcase.get("output")
-            duration = testcase.get("duration")
-            total_tokens = testcase.get("token_usage")
-            usage = LLMUsage(duration=duration, total_tokens=total_tokens)
-            
-            if not output: # do completions
-                logger.info(f"\tawaiting model completion for '{testcase['input']}' ({i}/{len(self._testcases)})")
-                if tracker:
-                    tracker["tests_generated"] += 1
-                
-                try:
-                    output, usage = self._subject.chat_text(model, testcase["input"], invalidate_cache) or ""
-
-                except Exception as e:
-                    import traceback
-                    logger.error(f"Invalid response from model {model}")
-                    logger.exception(traceback.print_exc())
-                    output = ""
-                    if tracker:
-                        tracker["errors"] += 1
-                    raise
-            
-            logger.info(f"\tgot response for '{testcase['input']}' ({i}/{len(self._testcases)})")
-            recorded_usage = usage.model_dump() if usage else None
-            logger.info(f"\trecorded usage: {recorded_usage} for model '{model}'")
-            
-            # create testcase
-            test_case = LLMTestCase(
-                input=testcase["input"],
-                actual_output=output,
-                expected_output=testcase["expected_output"],
-                additional_metadata=recorded_usage,
-                token_cost=usage.total_tokens if usage else None,
-                completion_time=usage.duration if usage else None
+        for testcase in generated_cases:
+            deepeval_cases.append(
+                LLMTestCase(
+                    input=testcase["input"],
+                    actual_output=testcase["output"],
+                    expected_output=testcase["expected_output"],
+                    additional_metadata=testcase["additional_metadata"],
+                    token_cost=testcase["token_usage"],
+                    completion_time=testcase["duration"],
+                )
             )
-            deepeval_cases.append(test_case)
 
-        logger.info(f"completions for model '{model}' done")
-            
-        # select metrics
         selected_metrics = []
         for name in metric_list:
             if name not in metrics:
                 raise ValueError(f"Unknown metric '{name}'")
             selected_metrics.append(metrics[name])
 
-        # run evaluation
-        results = evaluate(deepeval_cases, selected_metrics, error_config=ErrorConfig(
-            ignore_errors=True # allow metrics to fail
-        ))
+        results = evaluate(
+            deepeval_cases,
+            selected_metrics,
+            error_config=ErrorConfig(ignore_errors=True),
+        )
 
-        # update stats
         if tracker:
             tracker["tests_ran"] += len(deepeval_cases)
-
             for tr in results.test_results:
                 for mr in tr.metrics_data or []:
                     if mr.error:

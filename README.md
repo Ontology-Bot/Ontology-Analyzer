@@ -2,6 +2,7 @@
 
 ## Setup
 - I cannot recommend nothing better than going into each individual service and check readme.md
+- May God help you
 - Make sure .env files are set up
 
 ## Running
